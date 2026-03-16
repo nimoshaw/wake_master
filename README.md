@@ -47,10 +47,14 @@
 | 功能 | 说明 |
 |------|------|
 | ⚡ **一键唤醒** | WOL Magic Packet，秒级唤醒局域网内任意机器 |
-| 📊 **实时状态** | 自动 Ping 检测在线/离线，30秒~1小时自动刷新 |
-| 🔌 **远程关机** | 一键远程关闭目标机器 |
-| 🔄 **远程重启** | 一键远程重启目标机器 |
+| 📊 **实时状态** | 自动 Ping 检测在线/离线，可配置自动刷新 |
+| 🔌 **远程关机** | P2P 协议 + 组密码认证，一键远程关闭目标机器 |
+| 🔄 **远程重启** | P2P 协议 + 组密码认证，一键远程重启目标机器 |
 | 📡 **局域网扫描** | 自动发现同网段设备，一键添加 |
+| 🔒 **组密码验证** | HMAC-SHA256 签名认证，防止未授权操作 |
+| 🚀 **开机自启动** | 保持后台运行，随时接收远程指令 |
+| 📤 **导入/导出** | 机器配置一键导出导入，轻松迁移 |
+| 🐳 **Docker 部署** | 支持 NAS / Linux 服务器一键部署 |
 | 🎨 **暗色主题** | Glassmorphism 设计，赏心悦目 |
 | 📱 **响应式布局** | 手机、平板、桌面全适配 |
 | 🤖 **AI Agent 集成** | MCP Server + CLI，让你的 AI 助手帮你管机器 |
@@ -60,10 +64,14 @@
 | Feature | Description |
 |---------|-------------|
 | ⚡ **One-Click Wake** | WOL Magic Packet — wake any machine on your LAN instantly |
-| 📊 **Live Status** | Auto ping detection with configurable refresh (30s to 1h) |
-| 🔌 **Remote Shutdown** | Shut down machines remotely |
-| 🔄 **Remote Restart** | Restart machines remotely |
+| 📊 **Live Status** | Auto ping detection with configurable refresh |
+| 🔌 **Remote Shutdown** | P2P protocol with group password HMAC auth |
+| 🔄 **Remote Restart** | P2P protocol with group password HMAC auth |
 | 📡 **LAN Scan** | Auto-discover devices on your network |
+| 🔒 **Group Password** | HMAC-SHA256 authentication to prevent unauthorized access |
+| 🚀 **Auto-Start** | Start on boot to always accept remote commands |
+| 📤 **Import/Export** | One-click config backup and restore |
+| 🐳 **Docker** | One-command deployment for NAS / Linux servers |
 | 🎨 **Dark Theme** | Glassmorphism design that looks stunning |
 | 📱 **Responsive** | Works on phones, tablets, and desktops |
 | 🤖 **AI Agent Ready** | MCP Server + CLI for AI coding assistants |
@@ -118,9 +126,23 @@ cargo tauri build    # Build installer
 - macOS: `.dmg` / `.app`
 - Linux: `.AppImage` / `.deb` / `.rpm`
 
+### 🐳 Docker (NAS / Linux 服务器)
+
+```bash
+git clone https://github.com/nimoshaw/wake_master.git
+cd wake_master
+docker-compose up -d
+# 🎉 Open http://your-server-ip:3000
+```
+
+自定义端口：
+```bash
+PORT=8080 docker-compose up -d
+```
+
 ### 📱 Android
 
-Open `clients/android/` in Android Studio, build & run.
+Download `.apk` from [Releases](https://github.com/nimoshaw/wake_master/releases), or build from `clients/android/`.
 
 ### 📱 iOS
 
@@ -141,15 +163,24 @@ Click **➕ Add** button, fill in:
 
 ### Remote Shutdown/Restart
 
-> ⚠️ **Windows targets**: Requires Remote Registry service enabled
+> ⚠️ **重要：远程关机/重启需要目标机器也安装 WakeMaster Desktop！**
 >
-> **macOS/Linux targets**: Uses SSH. Ensure SSH access is configured on the target machine.
+> WakeMaster 使用 P2P 协议实现远程关机/重启。每台机器运行 WakeMaster 后会在端口 9090 监听指令，通过组密码进行身份验证。
+
+**设置步骤：**
+1. 在**所有需要互相控制的机器**上安装 WakeMaster Desktop
+2. 打开 ⚙️ **设置** → 输入**相同的组密码**
+3. 勾选 **开机自启动**（确保重启后仍能接收指令）
+4. 现在可以互相关机/重启了！
+
+> 💡 唤醒（WOL）**不需要**目标安装 WakeMaster，只要 BIOS 开启了 WOL 即可。
 
 ### WOL Prerequisites
 
 Enable WOL on your target machines:
 1. **BIOS**: Enable `Wake on PCI(E) Device` or `Resume by LAN`
 2. **NIC Settings**: Enable `Wake on Magic Packet`
+3. **Windows**: 关闭「快速启动」(Fast Startup) 以免影响 WOL
 
 ---
 
@@ -218,10 +249,13 @@ wake_master/
 - [x] 📱 iOS Client
 - [x] 🤖 MCP Server (AI Agent Integration)
 - [x] ⌨️ CLI Tool
-- [ ] 🌍 Remote WOL (Wake over Internet)
+- [x] 🌍 P2P Remote Shutdown/Restart
+- [x] 🔐 Group password authentication
+- [x] 🐳 Docker deployment
+- [x] 📤 Import/Export config
+- [x] 🚀 Auto-start on boot
 - [ ] 📊 Device uptime statistics
-- [ ] 🔐 Auth & multi-user support
-- [ ] 🐳 Docker deployment
+- [ ] 🌍 Remote WOL (Wake over Internet)
 
 ---
 
