@@ -3,6 +3,10 @@ target/
 dist/
 *.exe
 *.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
 
 # OS
 .DS_Store
@@ -12,3 +16,18 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+.gemini/
+
+# Build outputs
+clients/desktop/src-tauri/target/
+clients/android/.gradle/
+clients/android/build/
+clients/android/app/build/
+clients/android/local.properties
+clients/ios/build/
+clients/ios/DerivedData/
+*.xcworkspace
+*.xcuserdata
+
+# Cargo lock in libraries (keep in apps)
+# Keep Cargo.lock for reproducible builds

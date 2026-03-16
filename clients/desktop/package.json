@@ -1,0 +1,6 @@
+{
+  "name": "wakemaster-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WakeMaster - Cross-platform Wake-on-LAN Manager (Windows/macOS/Linux)"
+}

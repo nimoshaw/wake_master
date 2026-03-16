@@ -1,12 +1,31 @@
 {
-  "name": "wake-on-lan-dashboard",
+  "name": "wake-master",
   "version": "1.0.0",
-  "description": "局域网 Wake-on-LAN 仪表板 - 一键查看机器状态与唤醒",
+  "description": "Wake Master — LAN machine management with WOL, remote shutdown/restart, and AI agent integration",
   "main": "server.js",
+  "bin": {
+    "wake-master": "./agent/cli.js"
+  },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "cli": "node agent/cli.js"
   },
+  "keywords": [
+    "wake-on-lan",
+    "wol",
+    "network",
+    "lan",
+    "magic-packet",
+    "remote-management",
+    "mcp",
+    "ai-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nimoshaw/wake_master.git"
+  },
+  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
     "wake_on_lan": "^1.0.0"
