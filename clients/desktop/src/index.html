@@ -18,16 +18,15 @@
           <span class="logo-icon">⚡</span>
           <h1>WakeMaster</h1>
         </div>
-        <p class="subtitle">局域网机器管理与一键唤醒</p>
+        <p class="subtitle">局域网机器管理与一键唤醒 <span class="version-tag" id="versionTag">v0.2.0</span></p>
       </div>
       <div class="header-right">
         <div class="refresh-control">
           <label for="refreshInterval">自动刷新</label>
           <select id="refreshInterval">
-            <option value="30">30 秒</option>
-            <option value="60" selected>1 分钟</option>
+            <option value="0" selected>不刷新</option>
             <option value="300">5 分钟</option>
-            <option value="600">10 分钟</option>
+            <option value="900">15 分钟</option>
             <option value="1800">30 分钟</option>
             <option value="3600">1 小时</option>
           </select>
@@ -40,10 +39,18 @@
           <span class="btn-icon">📡</span>
           扫描
         </button>
-        <button class="btn btn-primary" id="addMachineBtn" title="添加新机器">
-          <span class="btn-icon">➕</span>
-          添加
-        </button>
+        <div class="btn-group" id="addBtnGroup">
+          <button class="btn btn-primary" id="addMachineBtn" title="添加新机器">
+            <span class="btn-icon">➕</span>
+            添加
+          </button>
+          <button class="btn btn-primary btn-dropdown-toggle" id="addDropdownToggle" title="更多操作">▾</button>
+          <div class="dropdown-menu" id="addDropdownMenu">
+            <button class="dropdown-item" id="exportBtn">📤 导出配置</button>
+            <button class="dropdown-item" id="importBtn">📥 导入配置</button>
+          </div>
+        </div>
+        <input type="file" id="importFileInput" accept=".json" style="display:none">
       </div>
     </div>
   </header>
@@ -76,7 +83,7 @@
         </div>
         <div class="form-group">
           <label for="machineMac">MAC 地址</label>
-          <input type="text" id="machineMac" placeholder="例如: D8:BB:C1:9A:9D:79" required>
+          <input type="text" id="machineMac" placeholder="支持 D8:BB:C1:9A:9D:79 / D8-BB-... / 空格分隔" required>
         </div>
         <div class="form-group">
           <label for="machineIp">IP 地址</label>

@@ -241,7 +241,7 @@ fun AddMachineDialog(
                 OutlinedTextField(
                     value = mac, onValueChange = { mac = it },
                     label = { Text("MAC Address") },
-                    placeholder = { Text("D8:BB:C1:9A:9D:79", color = TextMuted) },
+                    placeholder = { Text("支持 : - 空格 分隔", color = TextMuted) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -256,7 +256,7 @@ fun AddMachineDialog(
         },
         confirmButton = {
             Button(
-                onClick = { if (name.isNotBlank() && mac.isNotBlank() && ip.isNotBlank()) onAdd(name, mac, ip, icon) },
+                onClick = { if (name.isNotBlank() && mac.isNotBlank() && ip.isNotBlank()) onAdd(name, normalizeMac(mac), ip, icon) },
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
             ) { Text("Add") }
         },
@@ -264,4 +264,11 @@ fun AddMachineDialog(
             TextButton(onClick = onDismiss) { Text("Cancel", color = TextSecondary) }
         }
     )
+}
+
+// === MAC Address Normalization ===
+fun normalizeMac(input: String): String {
+    val raw = input.replace(Regex("[:\\-\\s.]"), "").uppercase()
+    if (!raw.matches(Regex("^[0-9A-F]{12}$"))) return input
+    return raw.chunked(2).joinToString(":")
 }

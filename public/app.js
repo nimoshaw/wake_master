@@ -7,6 +7,12 @@ let refreshTimer = null;
 const machinesGrid = document.getElementById('machinesGrid');
 const refreshBtn = document.getElementById('refreshBtn');
 const addMachineBtn = document.getElementById('addMachineBtn');
+const addDropdownToggle = document.getElementById('addDropdownToggle');
+const addDropdownMenu = document.getElementById('addDropdownMenu');
+const addBtnGroup = document.getElementById('addBtnGroup');
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const importFileInput = document.getElementById('importFileInput');
 const refreshInterval = document.getElementById('refreshInterval');
 const statusText = document.getElementById('statusText');
 const lastUpdate = document.getElementById('lastUpdate');
@@ -20,9 +26,9 @@ const toastContainer = document.getElementById('toastContainer');
 
 // === Init ===
 document.addEventListener('DOMContentLoaded', () => {
-  loadMachines();
+  loadMachines();  // loadMachines calls refreshStatus once
   setupEventListeners();
-  startAutoRefresh();
+  // No auto-refresh by default (value=0)
 });
 
 // === API ===
@@ -136,6 +142,54 @@ async function deleteMachine(id) {
   } catch (err) {
     showToast('删除失败', 'error');
   }
+}
+
+// === Export / Import ===
+async function exportMachines() {
+  try {
+    const data = await api('/api/machines');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wakemaster-machines.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('📤 配置已导出', 'success');
+  } catch (err) {
+    showToast('导出失败', 'error');
+  }
+}
+
+async function importMachines(file) {
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!Array.isArray(data)) {
+      showToast('导入文件格式错误：需要 JSON 数组', 'error');
+      return;
+    }
+    const result = await api('/api/machines/import', { method: 'POST', body: data });
+    if (result.success) {
+      showToast(`📥 导入完成：新增 ${result.added} 台，共 ${result.total} 台`, 'success');
+      await loadMachines();
+    } else {
+      showToast('导入失败: ' + (result.error || '未知错误'), 'error');
+    }
+  } catch (err) {
+    showToast('导入失败：文件解析错误', 'error');
+  }
+}
+
+// === Dropdown ===
+function toggleDropdown() {
+  addDropdownMenu.classList.toggle('show');
+}
+
+function closeDropdown() {
+  addDropdownMenu.classList.remove('show');
 }
 
 // === Rendering ===
@@ -269,14 +323,17 @@ function showConfirm(message) {
 // === Auto Refresh ===
 function startAutoRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
   const seconds = parseInt(refreshInterval.value, 10);
-  refreshTimer = setInterval(() => refreshStatus(), seconds * 1000);
+  if (seconds > 0) {
+    refreshTimer = setInterval(() => refreshStatus(), seconds * 1000);
+  }
 }
 
 // === Event Listeners ===
 function setupEventListeners() {
   refreshBtn.addEventListener('click', () => refreshStatus());
-  addMachineBtn.addEventListener('click', () => openAddModal());
+  addMachineBtn.addEventListener('click', () => { closeDropdown(); openAddModal(); });
   modalClose.addEventListener('click', closeModal);
   cancelBtn.addEventListener('click', closeModal);
 
@@ -284,9 +341,39 @@ function setupEventListeners() {
     if (e.target === modalOverlay) closeModal();
   });
 
+  // Dropdown toggle
+  addDropdownToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleDropdown();
+  });
+
+  // Export / Import
+  exportBtn.addEventListener('click', () => { closeDropdown(); exportMachines(); });
+  importBtn.addEventListener('click', () => { closeDropdown(); importFileInput.click(); });
+  importFileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      importMachines(e.target.files[0]);
+      e.target.value = '';  // reset so same file can be re-imported
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!addBtnGroup.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+
   refreshInterval.addEventListener('change', () => {
+    const label = refreshInterval.options[refreshInterval.selectedIndex].text;
+    showToast(`自动刷新已设为「${label}」`, 'info');
+    refreshStatus();   // refresh once immediately on config change
     startAutoRefresh();
-    showToast(`自动刷新间隔已设为 ${refreshInterval.options[refreshInterval.selectedIndex].text}`, 'info');
+  });
+
+  // MAC address auto-format on blur
+  document.getElementById('machineMac').addEventListener('blur', (e) => {
+    e.target.value = normalizeMac(e.target.value.trim());
   });
 
   // Icon picker
@@ -298,9 +385,11 @@ function setupEventListeners() {
   machineForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const editId = document.getElementById('editId').value;
+    const macInput = document.getElementById('machineMac');
+    macInput.value = normalizeMac(macInput.value.trim());
     const data = {
       name: document.getElementById('machineName').value.trim(),
-      mac: document.getElementById('machineMac').value.trim(),
+      mac: macInput.value,
       ip: document.getElementById('machineIp').value.trim(),
       icon: document.getElementById('machineIcon').value,
     };
@@ -324,4 +413,13 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function normalizeMac(input) {
+  // Strip all common separators: colon, dash, space, dot
+  const raw = input.replace(/[:\-\s.]/g, '').toUpperCase();
+  // Must be exactly 12 hex characters
+  if (!/^[0-9A-F]{12}$/.test(raw)) return input; // return as-is if invalid
+  // Format as XX:XX:XX:XX:XX:XX
+  return raw.match(/.{2}/g).join(':');
 }

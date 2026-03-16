@@ -69,7 +69,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addMachine(name: String, mac: String, ip: String, icon: String) {
-        store.addMachine(name, mac, ip, icon)
+        val normalizedMac = normalizeMac(mac)
+        store.addMachine(name, normalizedMac, ip, icon)
         loadMachines()
         showToast("✅ $name added")
     }

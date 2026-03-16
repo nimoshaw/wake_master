@@ -55,7 +55,8 @@ class MachineViewModel: ObservableObject {
     }
 
     func addMachine(name: String, mac: String, ip: String, icon: String) {
-        let machine = Machine(name: name, mac: mac, ip: ip, icon: icon.isEmpty ? "🖥️" : icon)
+        let normalizedMac = normalizeMac(mac)
+        let machine = Machine(name: name, mac: normalizedMac, ip: ip, icon: icon.isEmpty ? "🖥️" : icon)
         machines.append(machine)
         store.save(machines)
         showToast("✅ \(name) added")

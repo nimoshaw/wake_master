@@ -125,6 +125,40 @@ app.delete('/api/machines/:id', (req, res) => {
   res.json({ success: true, removed });
 });
 
+// Export machines as JSON download
+app.get('/api/machines/export', (req, res) => {
+  const machines = loadMachines();
+  res.setHeader('Content-Disposition', 'attachment; filename="wakemaster-machines.json"');
+  res.setHeader('Content-Type', 'application/json');
+  res.json(machines);
+});
+
+// Import machines from JSON (merge by MAC, skip duplicates)
+app.post('/api/machines/import', (req, res) => {
+  const incoming = req.body;
+  if (!Array.isArray(incoming)) {
+    return res.status(400).json({ error: '导入数据必须是 JSON 数组' });
+  }
+
+  const machines = loadMachines();
+  const existingMacs = new Set(machines.map(m => m.mac.toUpperCase().replace(/[:-]/g, '')));
+  let added = 0;
+
+  for (const item of incoming) {
+    if (!item.name || !item.mac || !item.ip) continue;
+    const normalizedMac = item.mac.toUpperCase().replace(/[:-]/g, '');
+    if (existingMacs.has(normalizedMac)) continue;
+
+    const id = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now() + '_' + added;
+    machines.push({ id, name: item.name, mac: item.mac, ip: item.ip, icon: item.icon || '🖥️' });
+    existingMacs.add(normalizedMac);
+    added++;
+  }
+
+  saveMachines(machines);
+  res.json({ success: true, added, total: machines.length });
+});
+
 // --- Start Server ---
 
 app.listen(PORT, () => {

@@ -206,7 +206,7 @@ struct AddMachineSheet: View {
             Form {
                 Section("Machine Info") {
                     TextField("Host Name", text: $name)
-                    TextField("MAC Address (e.g. D8:BB:C1:9A:9D:79)", text: $mac)
+                    TextField("MAC地址（支持 : - 空格 分隔）", text: $mac)
                     TextField("IP Address (e.g. 192.168.0.100)", text: $ip)
                 }
             }
@@ -218,7 +218,7 @@ struct AddMachineSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        onAdd(name, mac, ip, "🖥️")
+                        onAdd(name, normalizeMac(mac), ip, "🖥️")
                         isPresented = false
                     }
                     .disabled(name.isEmpty || mac.isEmpty || ip.isEmpty)
@@ -226,4 +226,21 @@ struct AddMachineSheet: View {
             }
         }
     }
+}
+
+// === MAC Address Normalization ===
+func normalizeMac(_ input: String) -> String {
+    let raw = input
+        .replacingOccurrences(of: ":", with: "")
+        .replacingOccurrences(of: "-", with: "")
+        .replacingOccurrences(of: " ", with: "")
+        .replacingOccurrences(of: ".", with: "")
+        .uppercased()
+    guard raw.count == 12, raw.allSatisfy({ $0.isHexDigit }) else { return input }
+    let pairs = stride(from: 0, to: 12, by: 2).map { i -> String in
+        let start = raw.index(raw.startIndex, offsetBy: i)
+        let end = raw.index(start, offsetBy: 2)
+        return String(raw[start..<end])
+    }
+    return pairs.joined(separator: ":")
 }

@@ -1,6 +1,6 @@
 {
   "productName": "WakeMaster",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.wakemaster.desktop",
   "build": {
     "frontendDist": "../src"
@@ -12,8 +12,8 @@
         "title": "WakeMaster",
         "width": 1100,
         "height": 750,
-        "minWidth": 800,
-        "minHeight": 600,
+        "minWidth": 420,
+        "minHeight": 500,
         "center": true,
         "resizable": true,
         "decorations": true

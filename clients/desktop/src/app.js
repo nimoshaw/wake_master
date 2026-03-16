@@ -1,6 +1,10 @@
 // === Tauri API ===
 const { invoke } = window.__TAURI__.core;
 
+// === Config ===
+const APP_VERSION = '0.2.0';
+const GITHUB_REPO = 'nimoshaw/wake_master';
+
 // === State ===
 let machines = [];
 let statusMap = {};
@@ -10,6 +14,12 @@ let refreshTimer = null;
 const machinesGrid = document.getElementById('machinesGrid');
 const refreshBtn = document.getElementById('refreshBtn');
 const addMachineBtn = document.getElementById('addMachineBtn');
+const addDropdownToggle = document.getElementById('addDropdownToggle');
+const addDropdownMenu = document.getElementById('addDropdownMenu');
+const addBtnGroup = document.getElementById('addBtnGroup');
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const importFileInput = document.getElementById('importFileInput');
 const scanBtn = document.getElementById('scanBtn');
 const refreshInterval = document.getElementById('refreshInterval');
 const statusText = document.getElementById('statusText');
@@ -30,9 +40,10 @@ const toastContainer = document.getElementById('toastContainer');
 
 // === Init ===
 document.addEventListener('DOMContentLoaded', () => {
-  loadMachines();
+  loadMachines();  // loads and refreshes once
   setupEventListeners();
-  startAutoRefresh();
+  // No auto-refresh by default (value=0)
+  checkForUpdate();
 });
 
 // === Data Operations ===
@@ -137,7 +148,6 @@ async function updateMachineInList(id, data) {
   try {
     const result = await invoke('update_machine', { id, ...data });
     if (result.success) {
-      // Reload to reflect changes
       machines = await invoke('get_machines');
       renderMachines();
       showToast(`✅ ${data.name} 已更新`, 'success');
@@ -191,6 +201,111 @@ async function scanLan() {
   }
 
   startScanBtn.disabled = false;
+}
+
+// === Export / Import ===
+function exportMachines() {
+  try {
+    const data = JSON.stringify(machines, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wakemaster-machines.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('📤 配置已导出', 'success');
+  } catch (err) {
+    showToast('导出失败: ' + err, 'error');
+  }
+}
+
+async function importMachines(file) {
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!Array.isArray(data)) {
+      showToast('导入文件格式错误：需要 JSON 数组', 'error');
+      return;
+    }
+
+    const existingMacs = new Set(machines.map(m => m.mac.toUpperCase().replace(/[:-]/g, '')));
+    let added = 0;
+
+    for (const item of data) {
+      if (!item.name || !item.mac || !item.ip) continue;
+      const normalizedMac = item.mac.toUpperCase().replace(/[:-]/g, '');
+      if (existingMacs.has(normalizedMac)) continue;
+
+      try {
+        await invoke('add_machine', {
+          name: item.name,
+          mac: item.mac,
+          ip: item.ip,
+          icon: item.icon || '🖥️'
+        });
+        existingMacs.add(normalizedMac);
+        added++;
+      } catch (e) {
+        // skip failed items
+      }
+    }
+
+    showToast(`📥 导入完成：新增 ${added} 台`, 'success');
+    machines = await invoke('get_machines');
+    renderMachines();
+    refreshStatus();
+  } catch (err) {
+    showToast('导入失败：文件解析错误', 'error');
+  }
+}
+
+// === Dropdown ===
+function toggleDropdown() {
+  addDropdownMenu.classList.toggle('show');
+}
+
+function closeDropdown() {
+  addDropdownMenu.classList.remove('show');
+}
+
+// === Software Update ===
+async function checkForUpdate() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+    if (!res.ok) return;
+    const release = await res.json();
+    const latestTag = release.tag_name.replace(/^v/, '');
+
+    if (latestTag !== APP_VERSION && compareVersions(latestTag, APP_VERSION) > 0) {
+      const versionTag = document.getElementById('versionTag');
+      if (versionTag) {
+        versionTag.textContent = `v${APP_VERSION} → v${latestTag} 可更新`;
+        versionTag.classList.add('update-available');
+        versionTag.style.cursor = 'pointer';
+        versionTag.onclick = () => {
+          window.open(release.html_url, '_blank');
+        };
+      }
+      showToast(`🆕 新版本 v${latestTag} 可用！点击版本号下载`, 'info');
+    }
+  } catch (err) {
+    // Silent fail — network might not be available
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
 }
 
 // === Rendering ===
@@ -273,7 +388,6 @@ function renderScanResults(devices) {
 
 // === Add from scan ===
 function addFromScan(ip, mac) {
-  // Pre-fill the add modal with scan result
   closeModal('scanModalOverlay');
   document.getElementById('editId').value = '';
   document.getElementById('machineName').value = '';
@@ -368,14 +482,17 @@ function showConfirm(message, actionLabel = '确认') {
 // === Auto Refresh ===
 function startAutoRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
   const seconds = parseInt(refreshInterval.value, 10);
-  refreshTimer = setInterval(() => refreshStatus(), seconds * 1000);
+  if (seconds > 0) {
+    refreshTimer = setInterval(() => refreshStatus(), seconds * 1000);
+  }
 }
 
 // === Event Listeners ===
 function setupEventListeners() {
   refreshBtn.addEventListener('click', () => refreshStatus());
-  addMachineBtn.addEventListener('click', openAddModal);
+  addMachineBtn.addEventListener('click', () => { closeDropdown(); openAddModal(); });
   scanBtn.addEventListener('click', openScanModal);
   modalClose.addEventListener('click', () => closeModal('modalOverlay'));
   cancelBtn.addEventListener('click', () => closeModal('modalOverlay'));
@@ -390,9 +507,39 @@ function setupEventListeners() {
     if (e.target === scanModalOverlay) closeModal('scanModalOverlay');
   });
 
+  // Dropdown toggle
+  addDropdownToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleDropdown();
+  });
+
+  // Export / Import
+  exportBtn.addEventListener('click', () => { closeDropdown(); exportMachines(); });
+  importBtn.addEventListener('click', () => { closeDropdown(); importFileInput.click(); });
+  importFileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      importMachines(e.target.files[0]);
+      e.target.value = '';
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!addBtnGroup.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+
   refreshInterval.addEventListener('change', () => {
+    const label = refreshInterval.options[refreshInterval.selectedIndex].text;
+    showToast(`自动刷新已设为「${label}」`, 'info');
+    refreshStatus();   // refresh once immediately on config change
     startAutoRefresh();
-    showToast(`自动刷新间隔已设为 ${refreshInterval.options[refreshInterval.selectedIndex].text}`, 'info');
+  });
+
+  // MAC address auto-format on blur
+  document.getElementById('machineMac').addEventListener('blur', (e) => {
+    e.target.value = normalizeMac(e.target.value.trim());
   });
 
   document.querySelectorAll('.icon-option').forEach(btn => {
@@ -402,9 +549,11 @@ function setupEventListeners() {
   machineForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const editId = document.getElementById('editId').value;
+    const macInput = document.getElementById('machineMac');
+    macInput.value = normalizeMac(macInput.value.trim());
     const data = {
       name: document.getElementById('machineName').value.trim(),
-      mac: document.getElementById('machineMac').value.trim(),
+      mac: macInput.value,
       ip: document.getElementById('machineIp').value.trim(),
       icon: document.getElementById('machineIcon').value,
     };
@@ -429,4 +578,10 @@ function esc(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function normalizeMac(input) {
+  const raw = input.replace(/[:\-\s.]/g, '').toUpperCase();
+  if (!/^[0-9A-F]{12}$/.test(raw)) return input;
+  return raw.match(/.{2}/g).join(':');
 }
