@@ -128,7 +128,7 @@ app.delete('/api/machines/:id', (req, res) => {
 // --- Start Server ---
 
 app.listen(PORT, () => {
-  console.log(`\n  🌐 Wake-on-LAN Dashboard 已启动`);
+  console.log(`\n  🌐 WakeMaster 已启动`);
   console.log(`  📍 访问地址: http://localhost:${PORT}`);
   console.log(`  📋 已加载 ${loadMachines().length} 台机器\n`);
 });
