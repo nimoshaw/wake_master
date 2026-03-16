@@ -18,7 +18,7 @@
           <span class="logo-icon">⚡</span>
           <h1>WakeMaster</h1>
         </div>
-        <p class="subtitle">局域网机器管理与一键唤醒 <span class="version-tag" id="versionTag">v0.3.0</span></p>
+        <p class="subtitle">局域网机器管理与一键唤醒 <span class="version-tag" id="versionTag">v0.4.0</span></p>
       </div>
       <div class="header-right">
         <div class="refresh-control">
@@ -38,6 +38,9 @@
         <button class="btn btn-secondary" id="scanBtn" title="扫描局域网设备">
           <span class="btn-icon">📡</span>
           扫描
+        </button>
+        <button class="btn btn-secondary" id="settingsBtn" title="设置">
+          <span class="btn-icon">⚙️</span>
         </button>
         <div class="btn-group" id="addBtnGroup">
           <button class="btn btn-primary" id="addMachineBtn" title="添加新机器">
@@ -126,6 +129,38 @@
           <span class="btn-icon">📡</span>
           开始扫描
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settingsModalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>⚙️ 设置</h2>
+        <button class="modal-close" id="settingsModalClose">&times;</button>
+      </div>
+      <div class="settings-form">
+        <div class="form-group">
+          <label for="groupPassword">组密码</label>
+          <input type="password" id="groupPassword" placeholder="所有机器设置相同的组密码">
+          <p class="form-hint">用于 P2P 远程关机/重启认证，所有机器需使用相同密码</p>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="autoStartToggle">
+            <span>开机自启动</span>
+          </label>
+          <p class="form-hint">开机后自动运行 WakeMaster，保持接收远程指令</p>
+        </div>
+        <div class="form-group">
+          <label>P2P 状态</label>
+          <p class="form-hint" id="p2pStatus">🔒 命令监听端口: 9090</p>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="settingsCancelBtn">取消</button>
+          <button type="button" class="btn btn-primary" id="settingsSaveBtn">保存</button>
+        </div>
       </div>
     </div>
   </div>

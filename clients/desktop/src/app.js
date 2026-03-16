@@ -2,7 +2,7 @@
 const { invoke } = window.__TAURI__.core;
 
 // === Config ===
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.4.0';
 const GITHUB_REPO = 'nimoshaw/wake_master';
 
 // === State ===
@@ -21,6 +21,7 @@ const exportBtn = document.getElementById('exportBtn');
 const importBtn = document.getElementById('importBtn');
 const importFileInput = document.getElementById('importFileInput');
 const scanBtn = document.getElementById('scanBtn');
+const settingsBtn = document.getElementById('settingsBtn');
 const refreshInterval = document.getElementById('refreshInterval');
 const statusText = document.getElementById('statusText');
 const lastUpdate = document.getElementById('lastUpdate');
@@ -569,6 +570,59 @@ function setupEventListeners() {
     if (e.key === 'Escape') {
       closeModal('modalOverlay');
       closeModal('scanModalOverlay');
+      closeModal('settingsModalOverlay');
+    }
+  });
+
+  // === Settings Modal ===
+  settingsBtn.addEventListener('click', async () => {
+    try {
+      const password = await invoke('get_group_password');
+      document.getElementById('groupPassword').value = password;
+      // Check autostart status
+      try {
+        const isEnabled = await invoke('plugin:autostart|is_enabled');
+        document.getElementById('autoStartToggle').checked = isEnabled;
+      } catch (e) {
+        document.getElementById('autoStartToggle').checked = false;
+      }
+      const statusEl = document.getElementById('p2pStatus');
+      if (password) {
+        statusEl.textContent = '🔒 命令监听端口: 9090 (已配置密码)';
+      } else {
+        statusEl.textContent = '⚠️ 命令监听端口: 9090 (未配置密码，无法接收指令)';
+      }
+      openModal('settingsModalOverlay');
+    } catch (e) {
+      showToast('读取设置失败', 'error');
+    }
+  });
+
+  document.getElementById('settingsModalClose').addEventListener('click', () => closeModal('settingsModalOverlay'));
+  document.getElementById('settingsCancelBtn').addEventListener('click', () => closeModal('settingsModalOverlay'));
+
+  document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
+    const password = document.getElementById('groupPassword').value.trim();
+    const autoStart = document.getElementById('autoStartToggle').checked;
+
+    try {
+      await invoke('set_group_password', { password });
+
+      // Toggle autostart
+      try {
+        if (autoStart) {
+          await invoke('plugin:autostart|enable');
+        } else {
+          await invoke('plugin:autostart|disable');
+        }
+      } catch (e) {
+        console.warn('Autostart toggle failed:', e);
+      }
+
+      showToast('✅ 设置已保存', 'success');
+      closeModal('settingsModalOverlay');
+    } catch (e) {
+      showToast('保存设置失败: ' + e, 'error');
     }
   });
 }

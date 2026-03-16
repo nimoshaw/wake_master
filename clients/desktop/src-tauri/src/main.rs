@@ -2,9 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::{Read, Write};
 use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -12,6 +18,12 @@ use std::os::windows::process::CommandExt;
 /// Windows flag to prevent console windows from appearing
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// P2P command server port
+const COMMAND_PORT: u16 = 9090;
+
+/// Timestamp tolerance (seconds)
+const TIMESTAMP_TOLERANCE: u64 = 300;
 
 /// Create a Command that won't show a console window on Windows
 fn silent_command(program: &str) -> Command {
@@ -56,14 +68,49 @@ struct CommandResult {
     message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppConfig {
+    #[serde(default)]
+    group_password: String,
+    #[serde(default = "default_command_port")]
+    command_port: u16,
+}
+
+fn default_command_port() -> u16 {
+    COMMAND_PORT
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            group_password: String::new(),
+            command_port: COMMAND_PORT,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct P2PCommand {
+    action: String,
+    timestamp: u64,
+    hmac: String,
+}
+
 // === File Helpers ===
 
-fn get_machines_path() -> PathBuf {
-    let exe_dir = std::env::current_exe()
+fn get_data_dir() -> PathBuf {
+    std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
-    exe_dir.join("machines.json")
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn get_machines_path() -> PathBuf {
+    get_data_dir().join("machines.json")
+}
+
+fn get_config_path() -> PathBuf {
+    get_data_dir().join("config.json")
 }
 
 fn load_machines() -> Vec<Machine> {
@@ -82,6 +129,51 @@ fn save_machines(machines: &[Machine]) {
     if let Ok(data) = serde_json::to_string_pretty(machines) {
         let _ = fs::write(path, data);
     }
+}
+
+fn load_config() -> AppConfig {
+    let path = get_config_path();
+    if let Ok(data) = fs::read_to_string(&path) {
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        let config = AppConfig::default();
+        save_config(&config);
+        config
+    }
+}
+
+fn save_config(config: &AppConfig) {
+    let path = get_config_path();
+    if let Ok(data) = serde_json::to_string_pretty(config) {
+        let _ = fs::write(path, data);
+    }
+}
+
+// === HMAC Auth ===
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn compute_hmac(action: &str, timestamp: u64, password: &str) -> String {
+    let message = format!("{}|{}", action, timestamp);
+    let mut mac = HmacSha256::new_from_slice(password.as_bytes())
+        .expect("HMAC can take key of any size");
+    mac.update(message.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn verify_hmac(action: &str, timestamp: u64, provided_hmac: &str, password: &str) -> bool {
+    if password.is_empty() {
+        return false; // No password set = reject all
+    }
+    let expected = compute_hmac(action, timestamp, password);
+    expected == provided_hmac
+}
+
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 // === WOL Magic Packet ===
@@ -117,15 +209,12 @@ fn send_wol(mac_str: &str, target_ip: &str) -> Result<(), String> {
         .set_broadcast(true)
         .map_err(|e| format!("Failed to set broadcast: {}", e))?;
 
-    // Build broadcast addresses: global + subnet-directed
     let mut targets = vec!["255.255.255.255".to_string()];
-    // Derive subnet broadcast from target IP (e.g., 192.168.0.100 -> 192.168.0.255)
     if let Some(last_dot) = target_ip.rfind('.') {
         let subnet_broadcast = format!("{}255", &target_ip[..=last_dot]);
         targets.push(subnet_broadcast);
     }
 
-    // Send to multiple ports, multiple times for reliability
     let ports = [9, 7, 0];
     for _ in 0..3 {
         for target in &targets {
@@ -159,90 +248,217 @@ fn ping_host(ip: &str) -> bool {
     }
 }
 
-// === Remote Power Control (Cross-Platform) ===
+// === Local Power Control ===
 
-fn remote_shutdown(ip: &str, name: &str) -> CommandResult {
-    if cfg!(target_os = "windows") {
-        let result = silent_command("shutdown")
-            .args(["/s", "/m", &format!("\\\\{}", ip), "/t", "5", "/c", "WakeMaster remote shutdown"])
-            .output();
-        match result {
-            Ok(output) if output.status.success() => CommandResult {
-                success: true,
-                message: format!("{} will shut down in 5 seconds", name),
-            },
-            Ok(output) => CommandResult {
-                success: false,
-                message: format!("Shutdown failed: {} (target may need remote shutdown enabled)", String::from_utf8_lossy(&output.stderr).trim()),
-            },
-            Err(e) => CommandResult {
-                success: false,
-                message: format!("Failed to execute shutdown: {}", e),
-            },
-        }
+fn local_shutdown() -> bool {
+    let result = if cfg!(target_os = "windows") {
+        silent_command("shutdown")
+            .args(["/s", "/t", "5", "/c", "WakeMaster remote shutdown"])
+            .output()
     } else {
-        // macOS / Linux: requires SSH access
-        let result = silent_command("ssh")
-            .args(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", &format!("root@{}", ip), "shutdown", "-h", "now"])
-            .output();
-        match result {
-            Ok(output) if output.status.success() => CommandResult {
-                success: true,
-                message: format!("{} shutdown command sent via SSH", name),
-            },
-            Ok(output) => CommandResult {
-                success: false,
-                message: format!("SSH shutdown failed: {} (ensure SSH access is configured)", String::from_utf8_lossy(&output.stderr).trim()),
-            },
-            Err(e) => CommandResult {
-                success: false,
-                message: format!("Failed to execute SSH shutdown: {}", e),
-            },
+        silent_command("shutdown")
+            .args(["-h", "+0"])
+            .output()
+    };
+    result.map(|o| o.status.success()).unwrap_or(false)
+}
+
+fn local_restart() -> bool {
+    let result = if cfg!(target_os = "windows") {
+        silent_command("shutdown")
+            .args(["/r", "/t", "5", "/c", "WakeMaster remote restart"])
+            .output()
+    } else {
+        silent_command("shutdown")
+            .args(["-r", "+0"])
+            .output()
+    };
+    result.map(|o| o.status.success()).unwrap_or(false)
+}
+
+// === P2P Command Server ===
+
+fn start_command_server(config: Arc<std::sync::Mutex<AppConfig>>) {
+    let addr = format!("0.0.0.0:{}", COMMAND_PORT);
+    let server = match tiny_http::Server::http(&addr) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to start command server on {}: {}", addr, e);
+            return;
         }
+    };
+    println!("🔒 P2P command server listening on port {}", COMMAND_PORT);
+
+    for request in server.incoming_requests() {
+        if request.method() != &tiny_http::Method::Post {
+            let resp = tiny_http::Response::from_string("{\"error\":\"method not allowed\"}")
+                .with_status_code(405)
+                .with_header(
+                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+                );
+            let _ = request.respond(resp);
+            continue;
+        }
+
+        // Read body
+        let mut body = String::new();
+        let mut reader = request.as_reader();
+        if reader.read_to_string(&mut body).is_err() {
+            let resp = tiny_http::Response::from_string("{\"error\":\"bad request\"}")
+                .with_status_code(400);
+            let _ = request.respond(resp);
+            continue;
+        }
+
+        // Parse command
+        let cmd: P2PCommand = match serde_json::from_str(&body) {
+            Ok(c) => c,
+            Err(_) => {
+                let resp = tiny_http::Response::from_string("{\"error\":\"invalid json\"}")
+                    .with_status_code(400);
+                let _ = request.respond(resp);
+                continue;
+            }
+        };
+
+        // Verify authentication
+        let password = {
+            let cfg = config.lock().unwrap();
+            cfg.group_password.clone()
+        };
+
+        if password.is_empty() {
+            let resp = tiny_http::Response::from_string("{\"error\":\"no group password configured on this machine\"}")
+                .with_status_code(403);
+            let _ = request.respond(resp);
+            continue;
+        }
+
+        // Timestamp check
+        let now = current_timestamp();
+        let diff = if now > cmd.timestamp { now - cmd.timestamp } else { cmd.timestamp - now };
+        if diff > TIMESTAMP_TOLERANCE {
+            let resp = tiny_http::Response::from_string("{\"error\":\"timestamp expired\"}")
+                .with_status_code(403);
+            let _ = request.respond(resp);
+            continue;
+        }
+
+        // HMAC check
+        if !verify_hmac(&cmd.action, cmd.timestamp, &cmd.hmac, &password) {
+            let resp = tiny_http::Response::from_string("{\"error\":\"authentication failed\"}")
+                .with_status_code(403);
+            let _ = request.respond(resp);
+            continue;
+        }
+
+        // Execute command
+        let success = match cmd.action.as_str() {
+            "shutdown" => {
+                println!("🔌 Received authenticated shutdown command");
+                local_shutdown()
+            }
+            "restart" => {
+                println!("🔄 Received authenticated restart command");
+                local_restart()
+            }
+            _ => false,
+        };
+
+        let resp_body = if success {
+            "{\"success\":true}"
+        } else {
+            "{\"success\":false,\"error\":\"command execution failed\"}"
+        };
+        let status = if success { 200 } else { 500 };
+        let resp = tiny_http::Response::from_string(resp_body)
+            .with_status_code(status)
+            .with_header(
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+            );
+        let _ = request.respond(resp);
     }
 }
 
-fn remote_restart(ip: &str, name: &str) -> CommandResult {
-    if cfg!(target_os = "windows") {
-        let result = silent_command("shutdown")
-            .args(["/r", "/m", &format!("\\\\{}", ip), "/t", "5", "/c", "WakeMaster remote restart"])
-            .output();
-        match result {
-            Ok(output) if output.status.success() => CommandResult {
-                success: true,
-                message: format!("{} will restart in 5 seconds", name),
-            },
-            Ok(output) => CommandResult {
-                success: false,
-                message: format!("Restart failed: {} (target may need remote shutdown enabled)", String::from_utf8_lossy(&output.stderr).trim()),
-            },
-            Err(e) => CommandResult {
-                success: false,
-                message: format!("Failed to execute restart: {}", e),
-            },
+// === P2P Command Sender ===
+
+fn send_p2p_command(ip: &str, action: &str, password: &str) -> CommandResult {
+    if password.is_empty() {
+        return CommandResult {
+            success: false,
+            message: "请先在设置中配置组密码".to_string(),
+        };
+    }
+
+    let timestamp = current_timestamp();
+    let hmac_hex = compute_hmac(action, timestamp, password);
+    let body = serde_json::json!({
+        "action": action,
+        "timestamp": timestamp,
+        "hmac": hmac_hex,
+    });
+
+    let url = format!("http://{}:{}/command", ip, COMMAND_PORT);
+
+    // Use a simple TCP connection for HTTP POST (avoid extra deps)
+    let addr = format!("{}:{}", ip, COMMAND_PORT);
+    let body_str = body.to_string();
+    let http_request = format!(
+        "POST /command HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        addr, body_str.len(), body_str
+    );
+
+    match std::net::TcpStream::connect_timeout(
+        &addr.parse().unwrap_or_else(|_| format!("{}:{}", ip, COMMAND_PORT).parse().unwrap()),
+        std::time::Duration::from_secs(5),
+    ) {
+        Ok(mut stream) => {
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            if stream.write_all(http_request.as_bytes()).is_err() {
+                return CommandResult {
+                    success: false,
+                    message: format!("发送命令失败: 无法连接到 {}", url),
+                };
+            }
+            let mut response = String::new();
+            let _ = stream.read_to_string(&mut response);
+
+            if response.contains("\"success\":true") {
+                let action_name = if action == "shutdown" { "关机" } else { "重启" };
+                CommandResult {
+                    success: true,
+                    message: format!("{} 指令已发送并执行", action_name),
+                }
+            } else if response.contains("authentication failed") {
+                CommandResult {
+                    success: false,
+                    message: "认证失败: 组密码不匹配".to_string(),
+                }
+            } else if response.contains("no group password") {
+                CommandResult {
+                    success: false,
+                    message: "目标机器未配置组密码".to_string(),
+                }
+            } else if response.contains("timestamp expired") {
+                CommandResult {
+                    success: false,
+                    message: "时间戳过期: 请确保两台机器时间同步".to_string(),
+                }
+            } else {
+                CommandResult {
+                    success: false,
+                    message: format!("目标机器返回错误"),
+                }
+            }
         }
-    } else {
-        let result = silent_command("ssh")
-            .args(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", &format!("root@{}", ip), "shutdown", "-r", "now"])
-            .output();
-        match result {
-            Ok(output) if output.status.success() => CommandResult {
-                success: true,
-                message: format!("{} restart command sent via SSH", name),
-            },
-            Ok(output) => CommandResult {
-                success: false,
-                message: format!("SSH restart failed: {} (ensure SSH access is configured)", String::from_utf8_lossy(&output.stderr).trim()),
-            },
-            Err(e) => CommandResult {
-                success: false,
-                message: format!("Failed to execute SSH restart: {}", e),
-            },
-        }
+        Err(_) => CommandResult {
+            success: false,
+            message: format!("无法连接到 {} (目标机器可能未运行 WakeMaster 或端口 {} 被防火墙拦截)", ip, COMMAND_PORT),
+        },
     }
 }
 
-// === LAN Scan (Cross-Platform) ===
+// === LAN Scan ===
 
 fn scan_arp_table() -> Vec<LanDevice> {
     let output = silent_command("arp").args(["-a"]).output();
@@ -253,7 +469,6 @@ fn scan_arp_table() -> Vec<LanDevice> {
         let text = String::from_utf8_lossy(&output.stdout);
 
         if cfg!(target_os = "windows") {
-            // Windows: "  192.168.0.1          d4-6d-6d-xx-xx-xx     dynamic"
             for line in text.lines() {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 3 {
@@ -272,14 +487,10 @@ fn scan_arp_table() -> Vec<LanDevice> {
                 }
             }
         } else {
-            // macOS: "? (192.168.0.1) at d4:6d:6d:xx:xx:xx on en0 ifscope [ethernet]"
-            // Linux: "? (192.168.0.1) at d4:6d:6d:xx:xx:xx [ether] on eth0"
             for line in text.lines() {
                 let line = line.trim();
-                // Extract IP from parentheses
                 if let (Some(ip_start), Some(ip_end)) = (line.find('('), line.find(')')) {
                     let ip = &line[ip_start + 1..ip_end];
-                    // Extract MAC after " at "
                     if let Some(at_idx) = line.find(" at ") {
                         let rest = &line[at_idx + 4..];
                         let mac = rest.split_whitespace().next().unwrap_or("");
@@ -391,8 +602,9 @@ fn wake_machine(id: String) -> CommandResult {
 #[tauri::command]
 fn shutdown_machine(id: String) -> CommandResult {
     let machines = load_machines();
+    let config = load_config();
     if let Some(machine) = machines.iter().find(|m| m.id == id) {
-        remote_shutdown(&machine.ip, &machine.name)
+        send_p2p_command(&machine.ip, "shutdown", &config.group_password)
     } else {
         CommandResult { success: false, message: "Machine not found".into() }
     }
@@ -401,8 +613,9 @@ fn shutdown_machine(id: String) -> CommandResult {
 #[tauri::command]
 fn restart_machine(id: String) -> CommandResult {
     let machines = load_machines();
+    let config = load_config();
     if let Some(machine) = machines.iter().find(|m| m.id == id) {
-        remote_restart(&machine.ip, &machine.name)
+        send_p2p_command(&machine.ip, "restart", &config.group_password)
     } else {
         CommandResult { success: false, message: "Machine not found".into() }
     }
@@ -424,11 +637,38 @@ fn get_platform() -> String {
     }
 }
 
+#[tauri::command]
+fn get_group_password() -> String {
+    load_config().group_password
+}
+
+#[tauri::command]
+fn set_group_password(password: String) -> CommandResult {
+    let mut config = load_config();
+    config.group_password = password;
+    save_config(&config);
+    CommandResult {
+        success: true,
+        message: "组密码已保存".to_string(),
+    }
+}
+
 // === Main ===
 
 fn main() {
+    // Start P2P command listener in background thread
+    let config = Arc::new(std::sync::Mutex::new(load_config()));
+    let config_clone = config.clone();
+    std::thread::spawn(move || {
+        start_command_server(config_clone);
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .invoke_handler(tauri::generate_handler![
             get_machines,
             add_machine,
@@ -440,6 +680,8 @@ fn main() {
             restart_machine,
             scan_lan,
             get_platform,
+            get_group_password,
+            set_group_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
