@@ -1,0 +1,14 @@
+{
+  "name": "wake-on-lan-dashboard",
+  "version": "1.0.0",
+  "description": "局域网 Wake-on-LAN 仪表板 - 一键查看机器状态与唤醒",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "wake_on_lan": "^1.0.0"
+  }
+}

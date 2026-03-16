@@ -1,0 +1,432 @@
+// === Tauri API ===
+const { invoke } = window.__TAURI__.core;
+
+// === State ===
+let machines = [];
+let statusMap = {};
+let refreshTimer = null;
+
+// === DOM Elements ===
+const machinesGrid = document.getElementById('machinesGrid');
+const refreshBtn = document.getElementById('refreshBtn');
+const addMachineBtn = document.getElementById('addMachineBtn');
+const scanBtn = document.getElementById('scanBtn');
+const refreshInterval = document.getElementById('refreshInterval');
+const statusText = document.getElementById('statusText');
+const lastUpdate = document.getElementById('lastUpdate');
+const modalOverlay = document.getElementById('modalOverlay');
+const modalTitle = document.getElementById('modalTitle');
+const modalClose = document.getElementById('modalClose');
+const machineForm = document.getElementById('machineForm');
+const cancelBtn = document.getElementById('cancelBtn');
+const submitBtn = document.getElementById('submitBtn');
+const scanModalOverlay = document.getElementById('scanModalOverlay');
+const scanModalClose = document.getElementById('scanModalClose');
+const scanCloseBtn = document.getElementById('scanCloseBtn');
+const startScanBtn = document.getElementById('startScanBtn');
+const scanStatus = document.getElementById('scanStatus');
+const scanResults = document.getElementById('scanResults');
+const toastContainer = document.getElementById('toastContainer');
+
+// === Init ===
+document.addEventListener('DOMContentLoaded', () => {
+  loadMachines();
+  setupEventListeners();
+  startAutoRefresh();
+});
+
+// === Data Operations ===
+async function loadMachines() {
+  try {
+    machines = await invoke('get_machines');
+    renderMachines();
+    refreshStatus();
+  } catch (err) {
+    showToast('加载机器列表失败: ' + err, 'error');
+  }
+}
+
+async function refreshStatus() {
+  machines.forEach(m => { statusMap[m.id] = null; });
+  renderMachines();
+  statusText.textContent = '正在检测状态...';
+
+  try {
+    const results = await invoke('check_status');
+    results.forEach(r => { statusMap[r.id] = r.online; });
+    const onlineCount = results.filter(r => r.online).length;
+    statusText.textContent = `共 ${machines.length} 台设备 · ${onlineCount} 台在线`;
+    lastUpdate.textContent = `上次更新: ${new Date().toLocaleTimeString('zh-CN')}`;
+  } catch (err) {
+    statusText.textContent = '状态检测失败';
+  }
+  renderMachines();
+}
+
+async function wakeMachine(id) {
+  const machine = machines.find(m => m.id === id);
+  if (!machine) return;
+
+  try {
+    const result = await invoke('wake_machine', { id });
+    if (result.success) {
+      showToast(`⚡ ${result.message}`, 'success');
+      setTimeout(() => refreshStatus(), 5000);
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (err) {
+    showToast(`唤醒失败: ${err}`, 'error');
+  }
+}
+
+async function shutdownMachine(id) {
+  const machine = machines.find(m => m.id === id);
+  if (!machine) return;
+
+  const confirmed = await showConfirm(`确定要关闭 "${machine.name}" 吗？\n机器将在 5 秒后关机。`, '关机');
+  if (!confirmed) return;
+
+  try {
+    const result = await invoke('shutdown_machine', { id });
+    if (result.success) {
+      showToast(`🔌 ${result.message}`, 'warning');
+      setTimeout(() => refreshStatus(), 10000);
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (err) {
+    showToast(`关机失败: ${err}`, 'error');
+  }
+}
+
+async function restartMachine(id) {
+  const machine = machines.find(m => m.id === id);
+  if (!machine) return;
+
+  const confirmed = await showConfirm(`确定要重启 "${machine.name}" 吗？\n机器将在 5 秒后重启。`, '重启');
+  if (!confirmed) return;
+
+  try {
+    const result = await invoke('restart_machine', { id });
+    if (result.success) {
+      showToast(`🔄 ${result.message}`, 'warning');
+      setTimeout(() => refreshStatus(), 15000);
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (err) {
+    showToast(`重启失败: ${err}`, 'error');
+  }
+}
+
+async function addMachineToList(data) {
+  try {
+    const newMachine = await invoke('add_machine', data);
+    machines.push(newMachine);
+    statusMap[newMachine.id] = null;
+    renderMachines();
+    showToast(`✅ ${data.name} 已添加`, 'success');
+    refreshStatus();
+  } catch (err) {
+    showToast('添加失败: ' + err, 'error');
+  }
+}
+
+async function updateMachineInList(id, data) {
+  try {
+    const result = await invoke('update_machine', { id, ...data });
+    if (result.success) {
+      // Reload to reflect changes
+      machines = await invoke('get_machines');
+      renderMachines();
+      showToast(`✅ ${data.name} 已更新`, 'success');
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (err) {
+    showToast('更新失败: ' + err, 'error');
+  }
+}
+
+async function deleteMachine(id) {
+  const machine = machines.find(m => m.id === id);
+  if (!machine) return;
+
+  const confirmed = await showConfirm(`确定要删除 "${machine.name}" 吗？`, '删除');
+  if (!confirmed) return;
+
+  try {
+    const result = await invoke('delete_machine', { id });
+    if (result.success) {
+      machines = machines.filter(m => m.id !== id);
+      delete statusMap[id];
+      renderMachines();
+      showToast(`🗑️ ${machine.name} 已删除`, 'info');
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (err) {
+    showToast('删除失败: ' + err, 'error');
+  }
+}
+
+async function scanLan() {
+  scanStatus.textContent = '🔍 正在扫描局域网...';
+  scanResults.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">扫描中，请稍候...</div>';
+  startScanBtn.disabled = true;
+
+  try {
+    const devices = await invoke('scan_lan');
+    if (devices.length === 0) {
+      scanStatus.textContent = '未发现设备（尝试先 ping 几台机器以刷新 ARP 表）';
+      scanResults.innerHTML = '';
+    } else {
+      scanStatus.textContent = `发现 ${devices.length} 台设备`;
+      renderScanResults(devices);
+    }
+  } catch (err) {
+    scanStatus.textContent = '扫描失败: ' + err;
+    scanResults.innerHTML = '';
+  }
+
+  startScanBtn.disabled = false;
+}
+
+// === Rendering ===
+function renderMachines() {
+  if (machines.length === 0) {
+    machinesGrid.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🖧</div>
+        <p class="empty-state-title">暂无机器</p>
+        <p class="empty-state-desc">点击右上角「添加」按钮或「扫描」发现局域网设备</p>
+      </div>`;
+    return;
+  }
+
+  machinesGrid.innerHTML = machines.map(m => {
+    const status = statusMap[m.id];
+    const statusClass = status === null ? 'checking' : (status ? 'online' : 'offline');
+    const statusLabel = status === null ? '检测中...' : (status ? '在线' : '离线');
+    const isOnline = status === true;
+    const isOffline = status === false;
+    const cardClass = isOnline ? 'online' : '';
+
+    return `
+      <div class="machine-card ${cardClass}" data-machine-id="${m.id}">
+        <div class="card-header">
+          <div class="card-identity">
+            <div class="card-icon">${m.icon || '🖥️'}</div>
+            <div class="card-info">
+              <h3>${esc(m.name)}</h3>
+              <div class="card-mac">${esc(m.mac)}</div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="card-action-btn" title="编辑" onclick="openEditModal('${m.id}')">✏️</button>
+            <button class="card-action-btn delete" title="删除" onclick="deleteMachine('${m.id}')">🗑️</button>
+          </div>
+        </div>
+        <div class="status-indicator ${statusClass}">
+          <div class="status-dot"></div>
+          <span class="status-label">${statusLabel}</span>
+        </div>
+        <div class="card-ip">IP: ${esc(m.ip)}</div>
+        <div class="card-btn-row">
+          <button class="action-btn wake-btn ${isOnline ? 'disabled' : ''}" onclick="wakeMachine('${m.id}')" ${isOnline ? 'disabled' : ''}>
+            <span>⚡</span><span>唤醒</span>
+          </button>
+          <button class="action-btn restart-btn ${isOffline ? 'disabled' : ''}" onclick="restartMachine('${m.id}')" ${isOffline ? 'disabled' : ''}>
+            <span>🔄</span><span>重启</span>
+          </button>
+          <button class="action-btn shutdown-btn ${isOffline ? 'disabled' : ''}" onclick="shutdownMachine('${m.id}')" ${isOffline ? 'disabled' : ''}>
+            <span>🔌</span><span>关机</span>
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderScanResults(devices) {
+  const existingMacs = new Set(machines.map(m => m.mac.toUpperCase().replace(/[:-]/g, '')));
+
+  scanResults.innerHTML = devices.map(d => {
+    const normalizedMac = d.mac.toUpperCase().replace(/[:-]/g, '');
+    const alreadyAdded = existingMacs.has(normalizedMac);
+
+    return `
+      <div class="scan-device ${alreadyAdded ? 'already-added' : ''}">
+        <div class="scan-device-info">
+          <span class="scan-device-ip">${esc(d.ip)}</span>
+          <span class="scan-device-mac">${esc(d.mac)}</span>
+        </div>
+        ${alreadyAdded
+          ? '<span style="font-size:12px; color:var(--text-muted);">已添加</span>'
+          : `<button class="btn btn-primary btn-sm" onclick="addFromScan('${esc(d.ip)}', '${esc(d.mac)}')">
+              <span class="btn-icon">➕</span> 添加
+            </button>`
+        }
+      </div>`;
+  }).join('');
+}
+
+// === Add from scan ===
+function addFromScan(ip, mac) {
+  // Pre-fill the add modal with scan result
+  closeModal('scanModalOverlay');
+  document.getElementById('editId').value = '';
+  document.getElementById('machineName').value = '';
+  document.getElementById('machineMac').value = mac;
+  document.getElementById('machineIp').value = ip;
+  document.getElementById('machineIcon').value = '🖥️';
+  selectIcon('🖥️');
+  modalTitle.textContent = '添加扫描到的设备';
+  submitBtn.textContent = '添加';
+  modalOverlay.classList.add('active');
+  document.getElementById('machineName').focus();
+}
+
+// === Modal ===
+function openAddModal() {
+  modalTitle.textContent = '添加机器';
+  submitBtn.textContent = '添加';
+  document.getElementById('editId').value = '';
+  document.getElementById('machineName').value = '';
+  document.getElementById('machineMac').value = '';
+  document.getElementById('machineIp').value = '';
+  document.getElementById('machineIcon').value = '🖥️';
+  selectIcon('🖥️');
+  modalOverlay.classList.add('active');
+}
+
+function openEditModal(id) {
+  const machine = machines.find(m => m.id === id);
+  if (!machine) return;
+  modalTitle.textContent = '编辑机器';
+  submitBtn.textContent = '保存';
+  document.getElementById('editId').value = id;
+  document.getElementById('machineName').value = machine.name;
+  document.getElementById('machineMac').value = machine.mac;
+  document.getElementById('machineIp').value = machine.ip;
+  document.getElementById('machineIcon').value = machine.icon || '🖥️';
+  selectIcon(machine.icon || '🖥️');
+  modalOverlay.classList.add('active');
+}
+
+function openScanModal() {
+  scanStatus.textContent = '点击「开始扫描」发现局域网设备';
+  scanResults.innerHTML = '';
+  scanModalOverlay.classList.add('active');
+}
+
+function closeModal(overlayId) {
+  document.getElementById(overlayId || 'modalOverlay').classList.remove('active');
+}
+
+function selectIcon(icon) {
+  document.querySelectorAll('.icon-option').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.icon === icon);
+  });
+  document.getElementById('machineIcon').value = icon;
+}
+
+// === Toast ===
+function showToast(message, type = 'info') {
+  const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<span>${icons[type] || ''}</span> ${esc(message)}`;
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'toastOut 0.3s ease forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+// === Confirm ===
+function showConfirm(message, actionLabel = '确认') {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    const btnClass = actionLabel === '删除' ? 'btn-danger' : (actionLabel === '关机' ? 'btn-danger' : 'btn-warning');
+    overlay.innerHTML = `
+      <div class="confirm-dialog">
+        <p>${esc(message)}</p>
+        <div class="form-actions">
+          <button class="btn btn-secondary" id="confirmCancel">取消</button>
+          <button class="btn ${btnClass}" id="confirmOk">${esc(actionLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#confirmCancel').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('#confirmOk').onclick = () => { overlay.remove(); resolve(true); };
+  });
+}
+
+// === Auto Refresh ===
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  const seconds = parseInt(refreshInterval.value, 10);
+  refreshTimer = setInterval(() => refreshStatus(), seconds * 1000);
+}
+
+// === Event Listeners ===
+function setupEventListeners() {
+  refreshBtn.addEventListener('click', () => refreshStatus());
+  addMachineBtn.addEventListener('click', openAddModal);
+  scanBtn.addEventListener('click', openScanModal);
+  modalClose.addEventListener('click', () => closeModal('modalOverlay'));
+  cancelBtn.addEventListener('click', () => closeModal('modalOverlay'));
+  scanModalClose.addEventListener('click', () => closeModal('scanModalOverlay'));
+  scanCloseBtn.addEventListener('click', () => closeModal('scanModalOverlay'));
+  startScanBtn.addEventListener('click', scanLan);
+
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) closeModal('modalOverlay');
+  });
+  scanModalOverlay.addEventListener('click', (e) => {
+    if (e.target === scanModalOverlay) closeModal('scanModalOverlay');
+  });
+
+  refreshInterval.addEventListener('change', () => {
+    startAutoRefresh();
+    showToast(`自动刷新间隔已设为 ${refreshInterval.options[refreshInterval.selectedIndex].text}`, 'info');
+  });
+
+  document.querySelectorAll('.icon-option').forEach(btn => {
+    btn.addEventListener('click', () => selectIcon(btn.dataset.icon));
+  });
+
+  machineForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const editId = document.getElementById('editId').value;
+    const data = {
+      name: document.getElementById('machineName').value.trim(),
+      mac: document.getElementById('machineMac').value.trim(),
+      ip: document.getElementById('machineIp').value.trim(),
+      icon: document.getElementById('machineIcon').value,
+    };
+    if (editId) {
+      updateMachineInList(editId, data);
+    } else {
+      addMachineToList(data);
+    }
+    closeModal('modalOverlay');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeModal('modalOverlay');
+      closeModal('scanModalOverlay');
+    }
+  });
+}
+
+// === Utils ===
+function esc(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "wakemaster-windows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WakeMaster - Wake-on-LAN 局域网唤醒工具 (Windows)"
+}

@@ -1,0 +1,14 @@
+node_modules/
+target/
+dist/
+*.exe
+*.msi
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

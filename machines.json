@@ -1,0 +1,30 @@
+[
+  {
+    "id": "station",
+    "name": "station",
+    "mac": "D8:BB:C1:9A:9D:79",
+    "ip": "192.168.0.100",
+    "icon": "🖥️"
+  },
+  {
+    "id": "corebox",
+    "name": "corebox",
+    "mac": "D8:BB:C1:91:19:7F",
+    "ip": "192.168.0.101",
+    "icon": "📦"
+  },
+  {
+    "id": "light",
+    "name": "light",
+    "mac": "70:70:FC:03:EA:DB",
+    "ip": "192.168.0.102",
+    "icon": "💡"
+  },
+  {
+    "id": "nimo",
+    "name": "nimo",
+    "mac": "70:70:FC:06:B6:45",
+    "ip": "192.168.0.103",
+    "icon": "💻"
+  }
+]
