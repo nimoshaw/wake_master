@@ -353,7 +353,7 @@ function renderMachines() {
           <span class="status-label">${statusLabel}</span>
         </div>
         <div class="card-ip">IP: ${esc(m.ip)}</div>
-        <div class="card-btn-row">
+        <div class="card-btn-row ${!agentMap[m.id] ? 'wake-only' : ''}">
           <button class="action-btn wake-btn ${isOnline ? 'disabled' : ''}" onclick="wakeMachine('${m.id}')" ${isOnline ? 'disabled' : ''}>
             <span>⚡</span><span>唤醒</span>
           </button>

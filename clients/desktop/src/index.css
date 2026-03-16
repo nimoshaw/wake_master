@@ -405,6 +405,10 @@ body::before {
   gap: 8px;
 }
 
+.card-btn-row.wake-only {
+  grid-template-columns: 1fr;
+}
+
 .action-btn {
   padding: 10px 8px;
   border: 1px solid var(--border-color);
