@@ -290,7 +290,7 @@ fn start_command_server(config: Arc<std::sync::Mutex<AppConfig>>) {
     };
     println!("🔒 P2P command server listening on port {}", COMMAND_PORT);
 
-    for request in server.incoming_requests() {
+    for mut request in server.incoming_requests() {
         if request.method() != &tiny_http::Method::Post {
             let resp = tiny_http::Response::from_string("{\"error\":\"method not allowed\"}")
                 .with_status_code(405)
