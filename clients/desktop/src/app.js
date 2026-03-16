@@ -8,6 +8,7 @@ const GITHUB_REPO = 'nimoshaw/wake_master';
 // === State ===
 let machines = [];
 let statusMap = {};
+let agentMap = {};
 let refreshTimer = null;
 
 // === DOM Elements ===
@@ -65,7 +66,10 @@ async function refreshStatus() {
 
   try {
     const results = await invoke('check_status');
-    results.forEach(r => { statusMap[r.id] = r.online; });
+    results.forEach(r => {
+      statusMap[r.id] = r.online;
+      agentMap[r.id] = r.has_agent;
+    });
     const onlineCount = results.filter(r => r.online).length;
     statusText.textContent = `共 ${machines.length} 台设备 · ${onlineCount} 台在线`;
     lastUpdate.textContent = `上次更新: ${new Date().toLocaleTimeString('zh-CN')}`;
@@ -353,12 +357,14 @@ function renderMachines() {
           <button class="action-btn wake-btn ${isOnline ? 'disabled' : ''}" onclick="wakeMachine('${m.id}')" ${isOnline ? 'disabled' : ''}>
             <span>⚡</span><span>唤醒</span>
           </button>
+          ${agentMap[m.id] ? `
           <button class="action-btn restart-btn ${isOffline ? 'disabled' : ''}" onclick="restartMachine('${m.id}')" ${isOffline ? 'disabled' : ''}>
             <span>🔄</span><span>重启</span>
           </button>
           <button class="action-btn shutdown-btn ${isOffline ? 'disabled' : ''}" onclick="shutdownMachine('${m.id}')" ${isOffline ? 'disabled' : ''}>
             <span>🔌</span><span>关机</span>
           </button>
+          ` : ''}
         </div>
       </div>`;
   }).join('');

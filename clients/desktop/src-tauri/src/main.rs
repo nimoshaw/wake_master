@@ -53,6 +53,7 @@ fn default_icon() -> String {
 struct MachineStatus {
     id: String,
     online: bool,
+    has_agent: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -571,9 +572,18 @@ fn check_status() -> Vec<MachineStatus> {
     let handles: Vec<_> = machines
         .into_iter()
         .map(|m| {
-            std::thread::spawn(move || MachineStatus {
-                id: m.id,
-                online: ping_host(&m.ip),
+            std::thread::spawn(move || {
+                let online = ping_host(&m.ip);
+                let has_agent = if online {
+                    // Probe port 9090 to detect WakeMaster agent
+                    std::net::TcpStream::connect_timeout(
+                        &format!("{}:{}", m.ip, COMMAND_PORT).parse().unwrap(),
+                        std::time::Duration::from_millis(800),
+                    ).is_ok()
+                } else {
+                    false
+                };
+                MachineStatus { id: m.id, online, has_agent }
             })
         })
         .collect();
