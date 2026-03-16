@@ -253,6 +253,18 @@ body::before {
   position: relative;
   overflow: hidden;
   animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  cursor: grab;
+}
+
+.machine-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.95);
+  cursor: grabbing;
+}
+
+.machine-card.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
 }
 
 .machine-card::before {

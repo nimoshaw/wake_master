@@ -334,7 +334,7 @@ function renderMachines() {
     const cardClass = isOnline ? 'online' : '';
 
     return `
-      <div class="machine-card ${cardClass}" data-machine-id="${m.id}">
+      <div class="machine-card ${cardClass}" data-machine-id="${m.id}" draggable="true">
         <div class="card-header">
           <div class="card-identity">
             <div class="card-icon">${m.icon || '🖥️'}</div>
@@ -368,6 +368,57 @@ function renderMachines() {
         </div>
       </div>`;
   }).join('');
+  setupDragAndDrop();
+}
+
+// === Drag and Drop ===
+let dragSrcId = null;
+
+function setupDragAndDrop() {
+  const cards = document.querySelectorAll('.machine-card');
+  cards.forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      dragSrcId = card.dataset.machineId;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.machine-card').forEach(c => c.classList.remove('drag-over'));
+      dragSrcId = null;
+    });
+
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (card.dataset.machineId !== dragSrcId) {
+        card.classList.add('drag-over');
+      }
+    });
+
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      const targetId = card.dataset.machineId;
+      if (dragSrcId && dragSrcId !== targetId) {
+        const srcIdx = machines.findIndex(m => m.id === dragSrcId);
+        const tgtIdx = machines.findIndex(m => m.id === targetId);
+        if (srcIdx !== -1 && tgtIdx !== -1) {
+          const [moved] = machines.splice(srcIdx, 1);
+          machines.splice(tgtIdx, 0, moved);
+          renderMachines();
+          // Persist new order
+          const ids = machines.map(m => m.id);
+          invoke('reorder_machines', { ids }).catch(() => {});
+        }
+      }
+    });
+  });
 }
 
 function renderScanResults(devices) {

@@ -687,6 +687,24 @@ fn set_group_password(password: String) -> CommandResult {
         message: "组密码已保存".to_string(),
     }
 }
+#[tauri::command]
+fn reorder_machines(ids: Vec<String>) -> CommandResult {
+    let machines = load_machines();
+    let mut reordered: Vec<Machine> = Vec::new();
+    for id in &ids {
+        if let Some(m) = machines.iter().find(|m| &m.id == id) {
+            reordered.push(m.clone());
+        }
+    }
+    // Add any machines not in the ids list (safety)
+    for m in &machines {
+        if !ids.contains(&m.id) {
+            reordered.push(m.clone());
+        }
+    }
+    save_machines(&reordered);
+    CommandResult { success: true, message: "Reordered".into() }
+}
 
 // === Main ===
 
@@ -717,6 +735,7 @@ fn main() {
             get_platform,
             get_group_password,
             set_group_password,
+            reorder_machines,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
