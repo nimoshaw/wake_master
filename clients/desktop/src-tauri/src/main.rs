@@ -6,6 +6,21 @@ use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Windows flag to prevent console windows from appearing
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Create a Command that won't show a console window on Windows
+fn silent_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 // === Data Models ===
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +107,7 @@ fn create_magic_packet(mac: &[u8; 6]) -> Vec<u8> {
     packet
 }
 
-fn send_wol(mac_str: &str) -> Result<(), String> {
+fn send_wol(mac_str: &str, target_ip: &str) -> Result<(), String> {
     let mac = parse_mac(mac_str)?;
     let packet = create_magic_packet(&mac);
 
@@ -101,10 +116,26 @@ fn send_wol(mac_str: &str) -> Result<(), String> {
     socket
         .set_broadcast(true)
         .map_err(|e| format!("Failed to set broadcast: {}", e))?;
-    socket
-        .send_to(&packet, "255.255.255.255:9")
-        .map_err(|e| format!("Failed to send packet: {}", e))?;
-    let _ = socket.send_to(&packet, "255.255.255.255:7");
+
+    // Build broadcast addresses: global + subnet-directed
+    let mut targets = vec!["255.255.255.255".to_string()];
+    // Derive subnet broadcast from target IP (e.g., 192.168.0.100 -> 192.168.0.255)
+    if let Some(last_dot) = target_ip.rfind('.') {
+        let subnet_broadcast = format!("{}255", &target_ip[..=last_dot]);
+        targets.push(subnet_broadcast);
+    }
+
+    // Send to multiple ports, multiple times for reliability
+    let ports = [9, 7, 0];
+    for _ in 0..3 {
+        for target in &targets {
+            for port in &ports {
+                let addr = format!("{}:{}", target, port);
+                let _ = socket.send_to(&packet, &addr);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 
     Ok(())
 }
@@ -113,12 +144,11 @@ fn send_wol(mac_str: &str) -> Result<(), String> {
 
 fn ping_host(ip: &str) -> bool {
     let output = if cfg!(target_os = "windows") {
-        Command::new("ping")
+        silent_command("ping")
             .args(["-n", "1", "-w", "2000", ip])
             .output()
     } else {
-        // macOS / Linux
-        Command::new("ping")
+        silent_command("ping")
             .args(["-c", "1", "-W", "2", ip])
             .output()
     };
@@ -133,8 +163,7 @@ fn ping_host(ip: &str) -> bool {
 
 fn remote_shutdown(ip: &str, name: &str) -> CommandResult {
     if cfg!(target_os = "windows") {
-        // Windows: shutdown /s /m \\ip /t 5
-        let result = Command::new("shutdown")
+        let result = silent_command("shutdown")
             .args(["/s", "/m", &format!("\\\\{}", ip), "/t", "5", "/c", "WakeMaster remote shutdown"])
             .output();
         match result {
@@ -153,7 +182,7 @@ fn remote_shutdown(ip: &str, name: &str) -> CommandResult {
         }
     } else {
         // macOS / Linux: requires SSH access
-        let result = Command::new("ssh")
+        let result = silent_command("ssh")
             .args(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", &format!("root@{}", ip), "shutdown", "-h", "now"])
             .output();
         match result {
@@ -175,7 +204,7 @@ fn remote_shutdown(ip: &str, name: &str) -> CommandResult {
 
 fn remote_restart(ip: &str, name: &str) -> CommandResult {
     if cfg!(target_os = "windows") {
-        let result = Command::new("shutdown")
+        let result = silent_command("shutdown")
             .args(["/r", "/m", &format!("\\\\{}", ip), "/t", "5", "/c", "WakeMaster remote restart"])
             .output();
         match result {
@@ -193,7 +222,7 @@ fn remote_restart(ip: &str, name: &str) -> CommandResult {
             },
         }
     } else {
-        let result = Command::new("ssh")
+        let result = silent_command("ssh")
             .args(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", &format!("root@{}", ip), "shutdown", "-r", "now"])
             .output();
         match result {
@@ -216,11 +245,7 @@ fn remote_restart(ip: &str, name: &str) -> CommandResult {
 // === LAN Scan (Cross-Platform) ===
 
 fn scan_arp_table() -> Vec<LanDevice> {
-    let output = if cfg!(target_os = "windows") {
-        Command::new("arp").args(["-a"]).output()
-    } else {
-        Command::new("arp").args(["-a"]).output()
-    };
+    let output = silent_command("arp").args(["-a"]).output();
 
     let mut devices = Vec::new();
 
@@ -348,7 +373,7 @@ fn check_status() -> Vec<MachineStatus> {
 fn wake_machine(id: String) -> CommandResult {
     let machines = load_machines();
     if let Some(machine) = machines.iter().find(|m| m.id == id) {
-        match send_wol(&machine.mac) {
+        match send_wol(&machine.mac, &machine.ip) {
             Ok(_) => CommandResult {
                 success: true,
                 message: format!("WOL packet sent to {} ({})", machine.name, machine.mac),

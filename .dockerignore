@@ -1,0 +1,8 @@
+node_modules/
+clients/
+.github/
+.git/
+*.md
+.gitignore
+machines.json
+data/

@@ -1,0 +1,12 @@
+services:
+  wakemaster:
+    build: .
+    image: wakemaster:latest
+    container_name: wakemaster
+    restart: unless-stopped
+    # Host network is recommended for Wake-on-LAN broadcast packets
+    network_mode: host
+    environment:
+      - PORT=3000
+    volumes:
+      - ./data:/app/data

@@ -2,7 +2,7 @@
 const { invoke } = window.__TAURI__.core;
 
 // === Config ===
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.3.0';
 const GITHUB_REPO = 'nimoshaw/wake_master';
 
 // === State ===

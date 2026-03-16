@@ -5,8 +5,11 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 3000;
-const MACHINES_FILE = path.join(__dirname, 'machines.json');
+const PORT = (() => {
+  const portArg = process.argv.find((a, i) => process.argv[i - 1] === '--port');
+  return parseInt(portArg || process.env.PORT || '3000', 10);
+})();
+const MACHINES_FILE = process.env.MACHINES_FILE || path.join(__dirname, 'machines.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));

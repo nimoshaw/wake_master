@@ -69,8 +69,43 @@ jobs:
             clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
             clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
 
+  build-android:
+    runs-on: ubuntu-latest
+    name: Android APK
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Release APK
+        working-directory: clients/android
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Find and rename APK
+        run: |
+          APK=$(find clients/android/app/build -name "*.apk" -path "*/release/*" | head -1)
+          if [ -n "$APK" ]; then
+            cp "$APK" clients/android/WakeMaster-android.apk
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: clients/android/WakeMaster-android.apk
+
   create-release:
-    needs: build-desktop
+    needs: [build-desktop, build-android]
     runs-on: ubuntu-latest
     name: Create Release
 
@@ -100,15 +135,26 @@ jobs:
             | 🍎 macOS (Intel) | `.dmg` |
             | 🍎 macOS (Apple Silicon) | `.dmg` |
             | 🐧 Linux | `.AppImage` or `.deb` |
+            | 📱 Android | `.apk` (允许未知来源安装) |
 
-            ### 📱 Mobile
-            - **Android**: Build from source (`clients/android/`)
-            - **iOS**: Build from source (`clients/ios/`)
+            ### 🐳 Docker 部署 (NAS / Linux 服务器)
+            ```bash
+            docker pull ghcr.io/nimoshaw/wake_master:latest
+            # 或本地构建
+            git clone https://github.com/nimoshaw/wake_master.git
+            cd wake_master
+            docker-compose up -d
+            ```
+            自定义端口: `PORT=8080 docker-compose up -d`
 
-            ### 🌐 Web Version
+            ### 📱 iOS
+            - 需在 macOS 上用 Xcode 本地构建 (`clients/ios/`)
+
+            ### 🌐 Web 版直接部署
             ```bash
             git clone https://github.com/nimoshaw/wake_master.git
             cd wake_master && npm install && npm start
+            # 自定义端口: PORT=8080 npm start 或 node server.js --port 8080
             ```
 
             ---
