@@ -291,6 +291,17 @@ fn start_command_server(config: Arc<std::sync::Mutex<AppConfig>>) {
     println!("🔒 P2P command server listening on port {}", COMMAND_PORT);
 
     for mut request in server.incoming_requests() {
+        // GET /ping — agent identity check
+        if request.method() == &tiny_http::Method::Get {
+            let resp = tiny_http::Response::from_string("{\"agent\":\"wakemaster\"}")
+                .with_status_code(200)
+                .with_header(
+                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+                );
+            let _ = request.respond(resp);
+            continue;
+        }
+
         if request.method() != &tiny_http::Method::Post {
             let resp = tiny_http::Response::from_string("{\"error\":\"method not allowed\"}")
                 .with_status_code(405)
@@ -575,11 +586,25 @@ fn check_status() -> Vec<MachineStatus> {
             std::thread::spawn(move || {
                 let online = ping_host(&m.ip);
                 let has_agent = if online {
-                    // Probe port 9090 to detect WakeMaster agent
-                    std::net::TcpStream::connect_timeout(
-                        &format!("{}:{}", m.ip, COMMAND_PORT).parse().unwrap(),
+                    // HTTP GET /ping to verify WakeMaster agent
+                    let addr = format!("{}:{}", m.ip, COMMAND_PORT);
+                    match std::net::TcpStream::connect_timeout(
+                        &addr.parse().unwrap(),
                         std::time::Duration::from_millis(800),
-                    ).is_ok()
+                    ) {
+                        Ok(mut stream) => {
+                            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(800)));
+                            let req = format!("GET /ping HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", addr);
+                            if stream.write_all(req.as_bytes()).is_ok() {
+                                let mut buf = String::new();
+                                let _ = stream.read_to_string(&mut buf);
+                                buf.contains("wakemaster")
+                            } else {
+                                false
+                            }
+                        }
+                        Err(_) => false,
+                    }
                 } else {
                     false
                 };
