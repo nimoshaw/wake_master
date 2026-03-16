@@ -1,7 +1,7 @@
 {
   "productName": "WakeMaster",
-  "version": "1.0.0",
-  "identifier": "com.wakemaster.app",
+  "version": "0.1.0",
+  "identifier": "com.wakemaster.desktop",
   "build": {
     "frontendDist": "../src"
   },

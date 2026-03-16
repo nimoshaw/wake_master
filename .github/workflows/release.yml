@@ -1,0 +1,118 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            name: macOS-Intel
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS-ARM
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            name: Linux
+
+    runs-on: ${{ matrix.platform }}
+    name: Desktop (${{ matrix.name }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build
+        working-directory: clients/desktop
+        run: cargo tauri build --target ${{ matrix.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: |
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+
+  create-release:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    name: Create Release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "WakeMaster ${{ github.ref_name }}"
+          body: |
+            ## ⚡ WakeMaster ${{ github.ref_name }}
+
+            ### Downloads
+
+            | Platform | File |
+            |----------|------|
+            | 🖥️ Windows | `.exe` (NSIS installer) or `.msi` |
+            | 🍎 macOS (Intel) | `.dmg` |
+            | 🍎 macOS (Apple Silicon) | `.dmg` |
+            | 🐧 Linux | `.AppImage` or `.deb` |
+
+            ### 📱 Mobile
+            - **Android**: Build from source (`clients/android/`)
+            - **iOS**: Build from source (`clients/ios/`)
+
+            ### 🌐 Web Version
+            ```bash
+            git clone https://github.com/nimoshaw/wake_master.git
+            cd wake_master && npm install && npm start
+            ```
+
+            ---
+            **Full changelog**: https://github.com/nimoshaw/wake_master/commits/${{ github.ref_name }}
+          files: artifacts/**/*
+          draft: false
+          prerelease: false
