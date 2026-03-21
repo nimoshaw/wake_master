@@ -2,7 +2,7 @@
 const { invoke } = window.__TAURI__.core;
 
 // === Config ===
-const APP_VERSION = '0.5.6';
+const APP_VERSION = '0.5.7';
 const GITHUB_REPO = 'nimoshaw/wake_master';
 
 // === State ===
@@ -278,14 +278,6 @@ function closeDropdown() {
 
 // === Software Update ===
 async function checkForUpdate() {
-  const versionTag = document.getElementById('versionTag');
-  if (versionTag) {
-    versionTag.style.cursor = 'pointer';
-    versionTag.onclick = () => {
-      invoke('plugin:shell|open', { value: `https://github.com/${GITHUB_REPO}/releases` });
-    };
-  }
-
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
     if (!res.ok) return;
@@ -293,9 +285,11 @@ async function checkForUpdate() {
     const latestTag = release.tag_name.replace(/^v/, '');
 
     if (latestTag !== APP_VERSION && compareVersions(latestTag, APP_VERSION) > 0) {
+      const versionTag = document.getElementById('versionTag');
       if (versionTag) {
         versionTag.textContent = `v${APP_VERSION} → v${latestTag} 可更新`;
         versionTag.classList.add('update-available');
+        versionTag.style.cursor = 'pointer';
         versionTag.onclick = () => {
           invoke('plugin:shell|open', { value: release.html_url });
         };
@@ -303,7 +297,7 @@ async function checkForUpdate() {
       showToast(`🆕 新版本 v${latestTag} 可用！点击版本号下载`, 'info');
     }
   } catch (err) {
-    // Silent fail — network might not be available
+    // Silent fail
   }
 }
 
@@ -360,7 +354,7 @@ function renderMachines() {
         </div>
         <div class="card-ip">IP: ${esc(m.ip)}</div>
         <div class="card-btn-row ${!agentMap[m.id] ? 'wake-only' : ''}">
-          <button class="action-btn wake-btn ${isOnline ? 'disabled' : ''}" onclick="wakeMachine('${m.id}')" ${isOnline ? 'disabled' : ''}>
+          <button class="action-btn wake-btn" onclick="wakeMachine('${m.id}')">
             <span>⚡</span><span>唤醒</span>
           </button>
           ${agentMap[m.id] ? `

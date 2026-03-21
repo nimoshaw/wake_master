@@ -840,14 +840,6 @@ body::before {
   margin-left: 6px;
   font-weight: 400;
   letter-spacing: 0.3px;
-  transition: all var(--transition);
-  cursor: pointer;
-}
-
-.version-tag:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
-  color: var(--text-secondary);
 }
 
 .version-tag.update-available {
