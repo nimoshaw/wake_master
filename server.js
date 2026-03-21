@@ -67,18 +67,13 @@ async function isMachineOnline(machine) {
   // Try ping first
   if (await pingHost(machine.ip)) return true;
   
-  // Fallback 1: SSH (22)
-  if (await checkTcpPort(machine.ip, 22)) return true;
+  // Fallback: Check common service ports in parallel for speed
+  const commonPorts = [22, 80, 443, 8006, 3389];
+  const portChecks = await Promise.all(
+    commonPorts.map(port => checkTcpPort(machine.ip, port, 800))
+  );
   
-  // Fallback 2: HTTP (80)
-  if (await checkTcpPort(machine.ip, 80)) return true;
-
-  // Fallback 3: Proxmox (8006) for 'light'
-  if (machine.id === 'light' || machine.ip === '192.168.0.103') {
-    if (await checkTcpPort(machine.ip, 8006)) return true;
-  }
-
-  return false;
+  return portChecks.some(success => success);
 }
 
 function sendWol(mac) {

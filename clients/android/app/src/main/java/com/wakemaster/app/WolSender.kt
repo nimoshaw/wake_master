@@ -46,7 +46,9 @@ object WolSender {
         // Fallback: Check common ports
         if (isPortOpen(ip, 22, 1000)) return true
         if (isPortOpen(ip, 80, 1000)) return true
+        if (isPortOpen(ip, 443, 1000)) return true
         if (isPortOpen(ip, 8006, 1000)) return true
+        if (isPortOpen(ip, 3389, 1000)) return true
 
         return false
     }
