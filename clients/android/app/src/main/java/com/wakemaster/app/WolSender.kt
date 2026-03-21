@@ -34,12 +34,32 @@ object WolSender {
     }
 
     /**
-     * Pings a host and returns true if reachable.
+     * Pings a host and returns true if reachable (with TCP fallback).
      */
     fun pingHost(ip: String, timeoutMs: Int = 2000): Boolean {
-        return try {
+        // Try ICMP (isReachable) first
+        try {
             val address = InetAddress.getByName(ip)
-            address.isReachable(timeoutMs)
+            if (address.isReachable(timeoutMs)) return true
+        } catch (e: Exception) {}
+
+        // Fallback: Check common ports
+        if (isPortOpen(ip, 22, 1000)) return true
+        if (isPortOpen(ip, 80, 1000)) return true
+        if (isPortOpen(ip, 8006, 1000)) return true
+
+        return false
+    }
+
+    /**
+     * Checks if a specific TCP port is open.
+     */
+    fun isPortOpen(ip: String, port: Int, timeoutMs: Int): Boolean {
+        return try {
+            val socket = java.net.Socket()
+            socket.connect(InetSocketAddress(ip, port), timeoutMs)
+            socket.close()
+            true
         } catch (e: Exception) {
             false
         }
