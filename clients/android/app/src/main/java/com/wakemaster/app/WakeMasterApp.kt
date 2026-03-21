@@ -2,8 +2,9 @@ package com.wakemaster.app
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -13,13 +14,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Job
 
 // === Color Palette (matching desktop dark theme) ===
 private val BgPrimary = Color(0xFF0A0E1A)
@@ -64,6 +71,11 @@ fun WakeMasterApp(viewModel: MainViewModel = viewModel()) {
                         }
                     },
                     actions = {
+                        // Scan button
+                        IconButton(onClick = { viewModel.startScan() }) {
+                            Icon(Icons.Default.Wifi, "Scan LAN", tint = Accent)
+                        }
+                        // Refresh button
                         IconButton(onClick = { viewModel.refreshStatus() }) {
                             Icon(Icons.Default.Refresh, "Refresh", tint = TextSecondary)
                         }
@@ -110,30 +122,121 @@ fun WakeMasterApp(viewModel: MainViewModel = viewModel()) {
                         Spacer(Modifier.height(16.dp))
                         Text("No machines yet", color = TextMuted, fontSize = 16.sp)
                         Spacer(Modifier.height(8.dp))
-                        Text("Tap + to add your first machine", color = TextMuted, fontSize = 13.sp)
+                        Text("Tap + to add or 📡 to scan LAN", color = TextMuted, fontSize = 13.sp)
                     }
                 }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(300.dp),
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(state.machines) { machine ->
-                        MachineCard(
-                            machine = machine,
-                            status = state.statusMap[machine.id],
-                            onWake = { viewModel.wakeMachine(machine.id) },
-                            onDelete = { viewModel.deleteMachine(machine.id) }
+                DraggableMachineList(
+                    machines = state.machines,
+                    statusMap = state.statusMap,
+                    onWake = { viewModel.wakeMachine(it) },
+                    onDelete = { viewModel.deleteMachine(it) },
+                    onMove = { from, to -> viewModel.moveMachine(from, to) },
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                )
+            }
+        }
+
+        // Scan Dialog
+        if (state.showScanDialog) {
+            ScanResultsDialog(
+                isScanning = state.isScanning,
+                progress = state.scanProgress,
+                results = state.scanResults,
+                isMacAdded = { viewModel.isMacAlreadyAdded(it) },
+                onAdd = { viewModel.addScannedDevice(it) },
+                onDismiss = { viewModel.dismissScanDialog() }
+            )
+        }
+    }
+}
+
+// === Draggable Machine List ===
+
+@Composable
+fun DraggableMachineList(
+    machines: List<Machine>,
+    statusMap: Map<String, Boolean?>,
+    onWake: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+
+    // Drag state
+    var draggedIndex by remember { mutableIntStateOf(-1) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var currentTargetIndex by remember { mutableIntStateOf(-1) }
+
+    LazyColumn(
+        state = listState,
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        itemsIndexed(machines, key = { _, m -> m.id }) { index, machine ->
+            val isDragged = draggedIndex == index
+
+            Box(
+                modifier = Modifier
+                    .zIndex(if (isDragged) 1f else 0f)
+                    .graphicsLayer {
+                        if (isDragged) {
+                            translationY = dragOffset
+                            scaleX = 1.03f
+                            scaleY = 1.03f
+                            alpha = 0.9f
+                            shadowElevation = 16f
+                        }
+                    }
+                    .pointerInput(index) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                draggedIndex = index
+                                dragOffset = 0f
+                                currentTargetIndex = index
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragOffset += dragAmount.y
+
+                                // Calculate target index based on drag position
+                                val itemHeight = 200 // approximate card height in px
+                                val rawTarget = index + (dragOffset / itemHeight).toInt()
+                                val target = rawTarget.coerceIn(0, machines.size - 1)
+                                if (target != currentTargetIndex) {
+                                    currentTargetIndex = target
+                                }
+                            },
+                            onDragEnd = {
+                                if (currentTargetIndex != draggedIndex && currentTargetIndex >= 0) {
+                                    onMove(draggedIndex, currentTargetIndex)
+                                }
+                                draggedIndex = -1
+                                dragOffset = 0f
+                                currentTargetIndex = -1
+                            },
+                            onDragCancel = {
+                                draggedIndex = -1
+                                dragOffset = 0f
+                                currentTargetIndex = -1
+                            }
                         )
                     }
-                }
+            ) {
+                MachineCard(
+                    machine = machine,
+                    status = statusMap[machine.id],
+                    onWake = { onWake(machine.id) },
+                    onDelete = { onDelete(machine.id) }
+                )
             }
         }
     }
 }
+
+// === Machine Card ===
 
 @Composable
 fun MachineCard(
@@ -194,20 +297,25 @@ fun MachineCard(
 
             Spacer(Modifier.height(8.dp))
 
-            // IP
-            Text("IP: ${machine.ip}", fontSize = 12.sp, color = TextMuted, fontFamily = FontFamily.Monospace)
+            // IP + drag hint
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("IP: ${machine.ip}", fontSize = 12.sp, color = TextMuted, fontFamily = FontFamily.Monospace)
+                Text("⠿ 长按拖拽排序", fontSize = 10.sp, color = TextMuted.copy(alpha = 0.5f))
+            }
 
             Spacer(Modifier.height(12.dp))
 
-            // Wake button
+            // Wake button — always enabled
             Button(
                 onClick = onWake,
-                enabled = status != true,
                 modifier = Modifier.fillMaxWidth().height(44.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Accent,
-                    disabledContainerColor = Accent.copy(alpha = 0.3f)
                 )
             ) {
                 Text("⚡ Wake", fontWeight = FontWeight.Medium)
@@ -215,6 +323,149 @@ fun MachineCard(
         }
     }
 }
+
+// === Scan Results Dialog ===
+
+@Composable
+fun ScanResultsDialog(
+    isScanning: Boolean,
+    progress: Float,
+    results: List<ScannedDevice>,
+    isMacAdded: (String) -> Boolean,
+    onAdd: (ScannedDevice) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { if (!isScanning) onDismiss() },
+        containerColor = BgSecondary,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📡 ", fontSize = 20.sp)
+                Text("LAN Scan", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (isScanning) {
+                    Text("Scanning network...", color = TextSecondary, fontSize = 13.sp)
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        color = Accent,
+                        trackColor = GrayBg,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${(progress * 100).toInt()}%",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.End)
+                    )
+                } else if (results.isEmpty()) {
+                    Text("No devices found on the network.",
+                        color = TextSecondary, fontSize = 14.sp)
+                } else {
+                    Text(
+                        "Found ${results.size} device(s)",
+                        color = Green,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(12.dp))
+
+                    // Results list
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 380.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(results) { device ->
+                            val alreadyAdded = isMacAdded(device.mac)
+                            ScanResultItem(
+                                device = device,
+                                alreadyAdded = alreadyAdded,
+                                onAdd = { onAdd(device) }
+                            )
+                        }
+                    }
+
+                    // Add All button
+                    val unadded = results.filter { !isMacAdded(it.mac) }
+                    if (unadded.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = { unadded.forEach { onAdd(it) } },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Accent.copy(alpha = 0.5f))
+                        ) {
+                            Text("➕ Add All (${unadded.size})", color = Accent)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (isScanning) "Cancel" else "Close", color = TextSecondary)
+            }
+        },
+        dismissButton = null
+    )
+}
+
+@Composable
+fun ScanResultItem(
+    device: ScannedDevice,
+    alreadyAdded: Boolean,
+    onAdd: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (alreadyAdded) GrayBg.copy(alpha = 0.3f) else GrayBg)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                device.hostname.ifEmpty { "Unknown Device" },
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                color = if (alreadyAdded) TextMuted else TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${device.ip}  •  ${device.mac}",
+                fontSize = 11.sp,
+                color = TextMuted,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        if (alreadyAdded) {
+            Text("✓ Added", fontSize = 12.sp, color = Green.copy(alpha = 0.6f))
+        } else {
+            FilledTonalButton(
+                onClick = onAdd,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = Accent.copy(alpha = 0.15f),
+                    contentColor = Accent
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text("+ Add", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+// === Add Machine Dialog ===
 
 @Composable
 fun AddMachineDialog(
