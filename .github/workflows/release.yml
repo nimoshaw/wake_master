@@ -85,15 +85,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Release APK
+      - name: Build Debug APK (Auto-signed)
         working-directory: clients/android
         run: |
           chmod +x gradlew 2>/dev/null || true
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleDebug --no-daemon
 
       - name: Find and rename APK
         run: |
-          APK=$(find clients/android/app/build -name "*.apk" -path "*/release/*" | head -1)
+          APK=$(find clients/android/app/build -name "*.apk" -path "*/debug/*" | head -1)
           if [ -n "$APK" ]; then
             cp "$APK" clients/android/WakeMaster-android.apk
           fi
