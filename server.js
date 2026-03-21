@@ -29,9 +29,10 @@ function saveMachines(machines) {
   fs.writeFileSync(MACHINES_FILE, JSON.stringify(machines, null, 2), 'utf8');
 }
 
+const net = require('net');
+
 function pingHost(ip) {
   return new Promise((resolve) => {
-    // Windows: ping -n 1 -w 2000 (1 packet, 2s timeout)
     const cmd = process.platform === 'win32'
       ? `ping -n 1 -w 2000 ${ip}`
       : `ping -c 1 -W 2 ${ip}`;
@@ -40,6 +41,44 @@ function pingHost(ip) {
       resolve(!error);
     });
   });
+}
+
+function checkTcpPort(ip, port = 22, timeout = 1000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(timeout);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.connect(port, ip);
+  });
+}
+
+async function isMachineOnline(machine) {
+  // Try ping first
+  if (await pingHost(machine.ip)) return true;
+  
+  // Fallback 1: SSH (22)
+  if (await checkTcpPort(machine.ip, 22)) return true;
+  
+  // Fallback 2: HTTP (80)
+  if (await checkTcpPort(machine.ip, 80)) return true;
+
+  // Fallback 3: Proxmox (8006) for 'light'
+  if (machine.id === 'light' || machine.ip === '192.168.0.103') {
+    if (await checkTcpPort(machine.ip, 8006)) return true;
+  }
+
+  return false;
 }
 
 function sendWol(mac) {
@@ -64,7 +103,7 @@ app.get('/api/machines/status', async (req, res) => {
   const machines = loadMachines();
   const results = await Promise.all(
     machines.map(async (m) => {
-      const online = await pingHost(m.ip);
+      const online = await isMachineOnline(m);
       return { id: m.id, online };
     })
   );
