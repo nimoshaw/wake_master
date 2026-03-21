@@ -10,7 +10,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/nimoshaw/wake_master?style=for-the-badge&logo=github&color=6366f1)](https://github.com/nimoshaw/wake_master/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Win%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS%20%7C%20Web-6366f1?style=for-the-badge)](#-clients)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Android%20%7C%20Web%20%7C%20Docker-6366f1?style=for-the-badge)](#-clients)
 
 <br>
 
@@ -80,16 +80,12 @@
 
 ## 📦 Clients
 
-Wake Master runs everywhere:
-
 | Platform | Technology | Status |
 |----------|-----------|--------|
-| 🌐 **Web** | Node.js + Express | ✅ Ready |
 | 🖥️ **Windows** | Tauri 2 + Rust | ✅ Ready |
-| 🍎 **macOS** | Tauri 2 + Rust | ✅ Ready |
-| 🐧 **Linux** | Tauri 2 + Rust | ✅ Ready |
 | 📱 **Android** | Kotlin + Jetpack Compose | ✅ Ready |
-| 📱 **iOS** | SwiftUI + Network.framework | ✅ Ready |
+| 🌐 **Web** | Node.js + Express | ✅ Ready |
+| 🐳 **Docker** | Node.js + Express | ✅ Ready |
 | 🤖 **CLI / Agent** | Node.js MCP Server | ✅ Ready |
 
 ---
@@ -106,25 +102,13 @@ npm start
 # 🎉 Open http://localhost:3000
 ```
 
-### 🖥️ Desktop (Windows / macOS / Linux)
+### 🖥️ Windows Desktop
 
-**Pre-built releases:**
-Download from [Releases](https://github.com/nimoshaw/wake_master/releases)
+Download `.exe` installer from [Releases](https://github.com/nimoshaw/wake_master/releases)
 
-**Build from source:**
-Requires [Node.js](https://nodejs.org/) 18+ and [Rust](https://rustup.rs/) 1.70+
+### 📱 Android
 
-```bash
-cd clients/desktop
-npm install
-cargo tauri dev      # Dev mode
-cargo tauri build    # Build installer
-```
-
-**Build targets:**
-- Windows: `.exe` (NSIS) / `.msi`
-- macOS: `.dmg` / `.app`
-- Linux: `.AppImage` / `.deb` / `.rpm`
+Download `.apk` from [Releases](https://github.com/nimoshaw/wake_master/releases)
 
 ### 🐳 Docker (NAS / Linux 服务器)
 
@@ -135,18 +119,7 @@ docker-compose up -d
 # 🎉 Open http://your-server-ip:3000
 ```
 
-自定义端口：
-```bash
-PORT=8080 docker-compose up -d
-```
-
-### 📱 Android
-
-Download `.apk` from [Releases](https://github.com/nimoshaw/wake_master/releases), or build from `clients/android/`.
-
-### 📱 iOS
-
-Open `clients/ios/WakeMaster/` in Xcode, build & run.
+自定义端口：`PORT=8080 docker-compose up -d`
 
 ---
 
@@ -226,13 +199,11 @@ wake_master/
 ├── public/                    # Web frontend (HTML/CSS/JS)
 ├── machines.json              # Machine configuration
 ├── clients/
-│   ├── desktop/               # Desktop app (Tauri 2 + Rust)
+│   ├── desktop/               # Windows app (Tauri 2 + Rust)
 │   │   ├── src/               # Frontend (HTML/CSS/JS)
 │   │   └── src-tauri/         # Rust backend
-│   ├── android/               # Android app (Kotlin/Compose)
-│   │   └── app/src/main/java/com/wakemaster/app/
-│   └── ios/                   # iOS app (SwiftUI)
-│       └── WakeMaster/
+│   └── android/               # Android app (Kotlin/Compose)
+│       └── app/src/main/java/com/wakemaster/app/
 ├── agent/
 │   ├── cli.js                 # CLI tool
 │   └── mcp-server.js          # MCP Server for AI assistants
@@ -243,10 +214,9 @@ wake_master/
 
 ## 🗺️ Roadmap
 
-- [x] 🖥️ Desktop (Windows / macOS / Linux)
+- [x] 🖥️ Windows Desktop
+- [x] 📱 Android Client (LAN Scan + Drag Reorder)
 - [x] 🌐 Web Dashboard
-- [x] 📱 Android Client
-- [x] 📱 iOS Client
 - [x] 🤖 MCP Server (AI Agent Integration)
 - [x] ⌨️ CLI Tool
 - [x] 🌍 P2P Remote Shutdown/Restart

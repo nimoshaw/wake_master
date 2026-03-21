@@ -9,27 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  build-desktop:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            name: Windows
-          # macOS disabled to save CI minutes (10x billing)
-          # - platform: macos-latest
-          #   target: x86_64-apple-darwin
-          #   name: macOS-Intel
-          # - platform: macos-latest
-          #   target: aarch64-apple-darwin
-          #   name: macOS-ARM
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            name: Linux
-
-    runs-on: ${{ matrix.platform }}
-    name: Desktop (${{ matrix.name }})
+  build-windows:
+    runs-on: windows-latest
+    name: Windows Desktop
 
     steps:
       - uses: actions/checkout@v4
@@ -42,33 +24,22 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Install Linux deps
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          targets: x86_64-pc-windows-msvc
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
       - name: Build
         working-directory: clients/desktop
-        run: cargo tauri build --target ${{ matrix.target }}
+        run: cargo tauri build --target x86_64-pc-windows-msvc
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.name }}
+          name: windows-desktop
           path: |
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            clients/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+            clients/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.exe
+            clients/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.msi
 
   build-android:
     runs-on: ubuntu-latest
@@ -106,7 +77,7 @@ jobs:
           path: clients/android/WakeMaster-android.apk
 
   create-release:
-    needs: [build-desktop, build-android]
+    needs: [build-windows, build-android]
     runs-on: ubuntu-latest
     name: Create Release
 
@@ -133,29 +104,20 @@ jobs:
             | Platform | File |
             |----------|------|
             | 🖥️ Windows | `.exe` (NSIS installer) or `.msi` |
-            | 🍎 macOS (Intel) | `.dmg` |
-            | 🍎 macOS (Apple Silicon) | `.dmg` |
-            | 🐧 Linux | `.AppImage` or `.deb` |
             | 📱 Android | `.apk` (允许未知来源安装) |
 
             ### 🐳 Docker 部署 (NAS / Linux 服务器)
             ```bash
-            docker pull ghcr.io/nimoshaw/wake_master:latest
-            # 或本地构建
             git clone https://github.com/nimoshaw/wake_master.git
             cd wake_master
             docker-compose up -d
             ```
             自定义端口: `PORT=8080 docker-compose up -d`
 
-            ### 📱 iOS
-            - 需在 macOS 上用 Xcode 本地构建 (`clients/ios/`)
-
             ### 🌐 Web 版直接部署
             ```bash
             git clone https://github.com/nimoshaw/wake_master.git
             cd wake_master && npm install && npm start
-            # 自定义端口: PORT=8080 npm start 或 node server.js --port 8080
             ```
 
             ---
