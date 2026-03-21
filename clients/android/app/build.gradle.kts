@@ -11,8 +11,8 @@ android {
         applicationId = "com.wakemaster.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.5.3"
+        versionCode = 6
+        versionName = "0.5.5"
         ndk {
             abiFilters.add("arm64-v8a")
         }

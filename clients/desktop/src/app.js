@@ -2,7 +2,7 @@
 const { invoke } = window.__TAURI__.core;
 
 // === Config ===
-const APP_VERSION = '0.4.0';
+const APP_VERSION = '0.5.5';
 const GITHUB_REPO = 'nimoshaw/wake_master';
 
 // === State ===
@@ -291,7 +291,7 @@ async function checkForUpdate() {
         versionTag.classList.add('update-available');
         versionTag.style.cursor = 'pointer';
         versionTag.onclick = () => {
-          window.open(release.html_url, '_blank');
+          invoke('plugin:shell|open', { value: release.html_url });
         };
       }
       showToast(`🆕 新版本 v${latestTag} 可用！点击版本号下载`, 'info');
