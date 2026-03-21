@@ -68,9 +68,9 @@ async function isMachineOnline(machine) {
   if (await pingHost(machine.ip)) return true;
   
   // Fallback: Check common service ports in parallel for speed
-  const commonPorts = [22, 80, 443, 8006, 3389];
+  const commonPorts = [22, 80, 443, 8006, 3389, 5900];
   const portChecks = await Promise.all(
-    commonPorts.map(port => checkTcpPort(machine.ip, port, 800))
+    commonPorts.map(port => checkTcpPort(machine.ip, port, 2000))
   );
   
   return portChecks.some(success => success);
