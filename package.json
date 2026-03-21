@@ -1,6 +1,6 @@
 {
   "name": "wake-master",
-  "version": "0.5.7",
+  "version": "0.5.0",
   "description": "Wake Master — LAN machine management with WOL, remote shutdown/restart, and AI agent integration",
   "main": "server.js",
   "bin": {
