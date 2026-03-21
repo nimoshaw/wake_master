@@ -29,8 +29,6 @@ function saveMachines(machines) {
   fs.writeFileSync(MACHINES_FILE, JSON.stringify(machines, null, 2), 'utf8');
 }
 
-const net = require('net');
-
 function pingHost(ip) {
   return new Promise((resolve) => {
     const cmd = process.platform === 'win32'
@@ -43,37 +41,8 @@ function pingHost(ip) {
   });
 }
 
-function checkTcpPort(ip, port = 22, timeout = 1000) {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    socket.setTimeout(timeout);
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.once('error', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.connect(port, ip);
-  });
-}
-
 async function isMachineOnline(machine) {
-  // Try ping first
-  if (await pingHost(machine.ip)) return true;
-  
-  // Fallback: Check common service ports in parallel for speed
-  const commonPorts = [22, 80, 443, 8006, 3389, 5900];
-  const portChecks = await Promise.all(
-    commonPorts.map(port => checkTcpPort(machine.ip, port, 2000))
-  );
-  
-  return portChecks.some(success => success);
+  return await pingHost(machine.ip);
 }
 
 function sendWol(mac) {

@@ -577,14 +577,7 @@ fn delete_machine(id: String) -> CommandResult {
     }
 }
 
-fn check_tcp_port(ip: &str, port: u16, timeout_ms: u64) -> bool {
-    let addr = format!("{}:{}", ip, port);
-    if let Ok(addr) = addr.parse::<std::net::SocketAddr>() {
-        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(timeout_ms)).is_ok()
-    } else {
-        false
-    }
-}
+
 
 #[tauri::command]
 fn check_status() -> Vec<MachineStatus> {
@@ -593,19 +586,7 @@ fn check_status() -> Vec<MachineStatus> {
         .into_iter()
         .map(|m| {
             std::thread::spawn(move || {
-                // 1. Try ping first
-                let mut online = ping_host(&m.ip);
-                
-                // 2. Fallback: check common ports if ping fails
-                if !online {
-                    let common_ports = [22, 80, 443, 8006, 3389, 5900];
-                    for port in common_ports {
-                        if check_tcp_port(&m.ip, port, 1000) {
-                            online = true;
-                            break;
-                        }
-                    }
-                }
+                let online = ping_host(&m.ip);
 
                 let has_agent = if online {
                     // HTTP GET /ping to verify WakeMaster agent
