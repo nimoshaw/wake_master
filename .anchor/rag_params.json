@@ -1,0 +1,11 @@
+{
+  "boost_beta_range": [
+    0.1,
+    0.5
+  ],
+  "residual_iterations": 2,
+  "cooccurrence_hop": 1,
+  "dedup_threshold": 0.9,
+  "tag_recall_top_n": 15,
+  "min_similarity": 0.25
+}

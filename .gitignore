@@ -24,6 +24,8 @@ clients/android/.gradle/
 clients/android/build/
 clients/android/app/build/
 clients/android/local.properties
+clients/android/debug.keystore
+clients/android/hs_err_pid*.log
 clients/ios/build/
 clients/ios/DerivedData/
 *.xcworkspace

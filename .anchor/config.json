@@ -1,0 +1,48 @@
+{
+  "parent": null,
+  "children": [],
+  "exclude_from_parent": true,
+  "ignore": [
+    "node_modules",
+    ".git",
+    "dist",
+    "*.lock",
+    ".anchor"
+  ],
+  "extensions": [
+    ".md",
+    ".ts",
+    ".js",
+    ".py",
+    ".txt",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".tsx",
+    ".jsx",
+    ".rs",
+    ".go",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h"
+  ],
+  "chunk_strategy": "auto",
+  "chunk_size": 512,
+  "chunk_overlap": 64,
+  "embedding_model": null,
+  "model_migration": {
+    "strategy": "warn",
+    "lazy_batch_size": 100,
+    "auto_rebuild_threshold": 500
+  },
+  "resolved_model": {
+    "provider": "custom",
+    "model": "Qwen/Qwen3-Embedding-4B",
+    "dimensions": 2560,
+    "base_url": "http://localhost:3000/v1",
+    "probed_at": "2026-03-26T07:36:45.246Z"
+  },
+  "_fingerprint": "a5a094772f43608b7712818b0133f2609cdbe23ac268b8cbc30532234a4adb3a",
+  "_dimensions": 2560
+}

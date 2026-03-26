@@ -6,8 +6,9 @@ use std::io::{Read, Write};
 use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -150,6 +151,21 @@ fn save_config(config: &AppConfig) {
     }
 }
 
+// === In-Memory Machine Cache ===
+
+static MACHINE_CACHE: OnceLock<Mutex<Vec<Machine>>> = OnceLock::new();
+
+fn cached_load_machines() -> Vec<Machine> {
+    let cache = MACHINE_CACHE.get_or_init(|| Mutex::new(load_machines()));
+    cache.lock().unwrap().clone()
+}
+
+fn cached_save_machines(machines: &[Machine]) {
+    let cache = MACHINE_CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    *cache.lock().unwrap() = machines.to_vec();
+    save_machines(machines);
+}
+
 // === HMAC Auth ===
 
 type HmacSha256 = Hmac<Sha256>;
@@ -167,7 +183,8 @@ fn verify_hmac(action: &str, timestamp: u64, provided_hmac: &str, password: &str
         return false; // No password set = reject all
     }
     let expected = compute_hmac(action, timestamp, password);
-    expected == provided_hmac
+    // Constant-time comparison to prevent timing attacks
+    expected.as_bytes().ct_eq(provided_hmac.as_bytes()).into()
 }
 
 fn current_timestamp() -> u64 {
@@ -526,12 +543,12 @@ fn scan_arp_table() -> Vec<LanDevice> {
 
 #[tauri::command]
 fn get_machines() -> Vec<Machine> {
-    load_machines()
+    cached_load_machines()
 }
 
 #[tauri::command]
 fn add_machine(name: String, mac: String, ip: String, icon: String) -> Machine {
-    let mut machines = load_machines();
+    let mut machines = cached_load_machines();
     let id = format!(
         "{}_{}",
         name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "_"),
@@ -545,19 +562,19 @@ fn add_machine(name: String, mac: String, ip: String, icon: String) -> Machine {
         icon: if icon.is_empty() { default_icon() } else { icon },
     };
     machines.push(new_machine.clone());
-    save_machines(&machines);
+    cached_save_machines(&machines);
     new_machine
 }
 
 #[tauri::command]
 fn update_machine(id: String, name: String, mac: String, ip: String, icon: String) -> CommandResult {
-    let mut machines = load_machines();
+    let mut machines = cached_load_machines();
     if let Some(m) = machines.iter_mut().find(|m| m.id == id) {
         if !name.is_empty() { m.name = name; }
         if !mac.is_empty() { m.mac = mac; }
         if !ip.is_empty() { m.ip = ip; }
         if !icon.is_empty() { m.icon = icon; }
-        save_machines(&machines);
+        cached_save_machines(&machines);
         CommandResult { success: true, message: "Updated".into() }
     } else {
         CommandResult { success: false, message: "Machine not found".into() }
@@ -566,11 +583,11 @@ fn update_machine(id: String, name: String, mac: String, ip: String, icon: Strin
 
 #[tauri::command]
 fn delete_machine(id: String) -> CommandResult {
-    let mut machines = load_machines();
+    let mut machines = cached_load_machines();
     let len_before = machines.len();
     machines.retain(|m| m.id != id);
     if machines.len() < len_before {
-        save_machines(&machines);
+        cached_save_machines(&machines);
         CommandResult { success: true, message: "Deleted".into() }
     } else {
         CommandResult { success: false, message: "Machine not found".into() }
@@ -581,7 +598,7 @@ fn delete_machine(id: String) -> CommandResult {
 
 #[tauri::command]
 fn check_status() -> Vec<MachineStatus> {
-    let machines = load_machines();
+    let machines = cached_load_machines();
     let handles: Vec<_> = machines
         .into_iter()
         .map(|m| {
@@ -624,7 +641,7 @@ fn check_status() -> Vec<MachineStatus> {
 
 #[tauri::command]
 fn wake_machine(id: String) -> CommandResult {
-    let machines = load_machines();
+    let machines = cached_load_machines();
     if let Some(machine) = machines.iter().find(|m| m.id == id) {
         match send_wol(&machine.mac, &machine.ip) {
             Ok(_) => CommandResult {
@@ -643,7 +660,7 @@ fn wake_machine(id: String) -> CommandResult {
 
 #[tauri::command]
 fn shutdown_machine(id: String) -> CommandResult {
-    let machines = load_machines();
+    let machines = cached_load_machines();
     let config = load_config();
     if let Some(machine) = machines.iter().find(|m| m.id == id) {
         send_p2p_command(&machine.ip, "shutdown", &config.group_password)
@@ -654,7 +671,7 @@ fn shutdown_machine(id: String) -> CommandResult {
 
 #[tauri::command]
 fn restart_machine(id: String) -> CommandResult {
-    let machines = load_machines();
+    let machines = cached_load_machines();
     let config = load_config();
     if let Some(machine) = machines.iter().find(|m| m.id == id) {
         send_p2p_command(&machine.ip, "restart", &config.group_password)
@@ -696,7 +713,7 @@ fn set_group_password(password: String) -> CommandResult {
 }
 #[tauri::command]
 fn reorder_machines(ids: Vec<String>) -> CommandResult {
-    let machines = load_machines();
+    let machines = cached_load_machines();
     let mut reordered: Vec<Machine> = Vec::new();
     for id in &ids {
         if let Some(m) = machines.iter().find(|m| &m.id == id) {
@@ -709,7 +726,7 @@ fn reorder_machines(ids: Vec<String>) -> CommandResult {
             reordered.push(m.clone());
         }
     }
-    save_machines(&reordered);
+    cached_save_machines(&reordered);
     CommandResult { success: true, message: "Reordered".into() }
 }
 

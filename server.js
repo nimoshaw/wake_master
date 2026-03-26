@@ -8,9 +8,23 @@ const PORT = (() => {
   return parseInt(portArg || process.env.PORT || '3000', 10);
 })();
 const MACHINES_FILE = process.env.MACHINES_FILE || path.join(__dirname, 'machines.json');
+const API_TOKEN = process.env.API_TOKEN || '';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- Optional Bearer Token auth (set API_TOKEN env var to enable) ---
+
+if (API_TOKEN) {
+  app.use('/api', (req, res, next) => {
+    const auth = req.headers.authorization;
+    if (!auth || auth !== `Bearer ${API_TOKEN}`) {
+      return res.status(401).json({ error: '未授权: 需要有效的 Bearer Token' });
+    }
+    next();
+  });
+  console.log('  🔒 API 认证已启用 (Bearer Token)');
+}
 
 // --- In-memory cache with debounced write-back ---
 

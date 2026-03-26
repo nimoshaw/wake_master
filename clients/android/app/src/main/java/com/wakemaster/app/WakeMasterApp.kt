@@ -350,7 +350,7 @@ fun ScanResultsDialog(
                     Text("Scanning network...", color = TextSecondary, fontSize = 13.sp)
                     Spacer(Modifier.height(12.dp))
                     LinearProgressIndicator(
-                        progress = { progress },
+                        progress = progress,
                         modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                         color = Accent,
                         trackColor = GrayBg,

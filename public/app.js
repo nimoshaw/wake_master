@@ -415,6 +415,7 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Mirror of lib/core.js normalizeMac — keep in sync when modifying.
 function normalizeMac(input) {
   // Strip all common separators: colon, dash, space, dot
   const raw = input.replace(/[:\-\s.]/g, '').toUpperCase();
