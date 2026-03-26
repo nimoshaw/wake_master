@@ -24,57 +24,8 @@
  *   }
  */
 
-const fs = require('fs');
-const path = require('path');
-const { exec } = require('child_process');
-const dgram = require('dgram');
 const readline = require('readline');
-
-const MACHINES_FILE = path.join(__dirname, '..', 'machines.json');
-
-// === Shared Logic ===
-
-function loadMachines() {
-  try { return JSON.parse(fs.readFileSync(MACHINES_FILE, 'utf8')); }
-  catch { return []; }
-}
-
-function saveMachines(machines) {
-  fs.writeFileSync(MACHINES_FILE, JSON.stringify(machines, null, 2), 'utf8');
-}
-
-function parseMac(mac) {
-  const parts = mac.split(/[:-]/);
-  if (parts.length !== 6) throw new Error(`Invalid MAC: ${mac}`);
-  return Buffer.from(parts.map(p => parseInt(p, 16)));
-}
-
-function sendWol(mac) {
-  return new Promise((resolve, reject) => {
-    const macBuf = parseMac(mac);
-    const packet = Buffer.alloc(102);
-    packet.fill(0xFF, 0, 6);
-    for (let i = 0; i < 16; i++) macBuf.copy(packet, 6 + i * 6);
-    const socket = dgram.createSocket('udp4');
-    socket.once('error', reject);
-    socket.bind(() => {
-      socket.setBroadcast(true);
-      socket.send(packet, 0, 102, 9, '255.255.255.255', (err) => {
-        socket.close();
-        err ? reject(err) : resolve();
-      });
-    });
-  });
-}
-
-function pingHost(ip) {
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32'
-      ? `ping -n 1 -w 2000 ${ip}`
-      : `ping -c 1 -W 2 ${ip}`;
-    exec(cmd, (error) => resolve(!error));
-  });
-}
+const { loadMachines, saveMachines, sendWol, pingHost, findMachine, generateId } = require('../lib/core');
 
 // === MCP Protocol (JSON-RPC over stdio) ===
 
@@ -145,7 +96,7 @@ async function handleToolCall(name, args) {
     }
     case 'wake_master_wake': {
       const machines = loadMachines();
-      const machine = machines.find(m => m.id === args.machine || m.name.toLowerCase() === args.machine.toLowerCase());
+      const machine = findMachine(machines, args.machine);
       if (!machine) return { content: [{ type: 'text', text: `Machine not found: ${args.machine}. Available: ${machines.map(m => m.name).join(', ')}` }], isError: true };
       try {
         await sendWol(machine.mac);
@@ -156,14 +107,14 @@ async function handleToolCall(name, args) {
     }
     case 'wake_master_add': {
       const machines = loadMachines();
-      const id = args.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+      const id = generateId(args.name);
       machines.push({ id, name: args.name, mac: args.mac, ip: args.ip, icon: '🖥️' });
       saveMachines(machines);
       return { content: [{ type: 'text', text: `✅ Added ${args.name} (${args.mac}, ${args.ip})` }] };
     }
     case 'wake_master_remove': {
       const machines = loadMachines();
-      const machine = machines.find(m => m.id === args.machine || m.name.toLowerCase() === args.machine.toLowerCase());
+      const machine = findMachine(machines, args.machine);
       if (!machine) return { content: [{ type: 'text', text: `Machine not found: ${args.machine}` }], isError: true };
       saveMachines(machines.filter(m => m.id !== machine.id));
       return { content: [{ type: 'text', text: `🗑️ Removed ${machine.name}` }] };
@@ -207,7 +158,6 @@ function handleRequest(request) {
 // === Stdio Transport ===
 
 const rl = readline.createInterface({ input: process.stdin });
-let buffer = '';
 
 rl.on('line', async (line) => {
   try {

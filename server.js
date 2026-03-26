@@ -1,8 +1,6 @@
 const express = require('express');
-const wol = require('wake_on_lan');
-const { exec } = require('child_process');
-const fs = require('fs');
 const path = require('path');
+const { loadMachines: loadFromDisk, saveMachines: saveToDisk, pingHost, sendWol, generateId } = require('./lib/core');
 
 const app = express();
 const PORT = (() => {
@@ -14,69 +12,44 @@ const MACHINES_FILE = process.env.MACHINES_FILE || path.join(__dirname, 'machine
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Helpers ---
+// --- In-memory cache with debounced write-back ---
 
-function loadMachines() {
-  try {
-    const data = fs.readFileSync(MACHINES_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch {
-    return [];
-  }
+let _machines = null;
+let _writeTimer = null;
+
+function getMachines() {
+  if (!_machines) _machines = loadFromDisk(MACHINES_FILE);
+  return _machines;
 }
 
-function saveMachines(machines) {
-  fs.writeFileSync(MACHINES_FILE, JSON.stringify(machines, null, 2), 'utf8');
-}
-
-function pingHost(ip) {
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32'
-      ? `ping -n 1 -w 2000 ${ip}`
-      : `ping -c 1 -W 2 ${ip}`;
-
-    exec(cmd, (error) => {
-      resolve(!error);
-    });
-  });
-}
-
-async function isMachineOnline(machine) {
-  return await pingHost(machine.ip);
-}
-
-function sendWol(mac) {
-  return new Promise((resolve, reject) => {
-    wol.wake(mac, (error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+function setMachines(machines) {
+  _machines = machines;
+  if (_writeTimer) clearTimeout(_writeTimer);
+  _writeTimer = setTimeout(() => saveToDisk(machines, MACHINES_FILE), 500);
 }
 
 // --- API Routes ---
 
-// Get all machines with status
+// Get all machines
 app.get('/api/machines', (req, res) => {
-  const machines = loadMachines();
-  res.json(machines);
+  res.json(getMachines());
 });
 
 // Batch ping all machines for status
 app.get('/api/machines/status', async (req, res) => {
-  const machines = loadMachines();
+  const machines = getMachines();
   const results = await Promise.all(
-    machines.map(async (m) => {
-      const online = await isMachineOnline(m);
-      return { id: m.id, online };
-    })
+    machines.map(async (m) => ({
+      id: m.id,
+      online: await pingHost(m.ip),
+    }))
   );
   res.json(results);
 });
 
 // Wake a machine
 app.post('/api/machines/:id/wake', async (req, res) => {
-  const machines = loadMachines();
+  const machines = getMachines();
   const machine = machines.find(m => m.id === req.params.id);
   if (!machine) {
     return res.status(404).json({ error: '机器未找到' });
@@ -95,17 +68,17 @@ app.post('/api/machines', (req, res) => {
   if (!name || !mac || !ip) {
     return res.status(400).json({ error: '名称、MAC 和 IP 都是必填项' });
   }
-  const machines = loadMachines();
-  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+  const machines = getMachines();
+  const id = generateId(name);
   const newMachine = { id, name, mac, ip, icon: icon || '🖥️' };
   machines.push(newMachine);
-  saveMachines(machines);
+  setMachines(machines);
   res.json(newMachine);
 });
 
 // Update a machine
 app.put('/api/machines/:id', (req, res) => {
-  const machines = loadMachines();
+  const machines = getMachines();
   const idx = machines.findIndex(m => m.id === req.params.id);
   if (idx === -1) {
     return res.status(404).json({ error: '机器未找到' });
@@ -115,25 +88,25 @@ app.put('/api/machines/:id', (req, res) => {
   if (mac) machines[idx].mac = mac;
   if (ip) machines[idx].ip = ip;
   if (icon !== undefined) machines[idx].icon = icon;
-  saveMachines(machines);
+  setMachines(machines);
   res.json(machines[idx]);
 });
 
 // Delete a machine
 app.delete('/api/machines/:id', (req, res) => {
-  let machines = loadMachines();
+  const machines = getMachines();
   const idx = machines.findIndex(m => m.id === req.params.id);
   if (idx === -1) {
     return res.status(404).json({ error: '机器未找到' });
   }
   const removed = machines.splice(idx, 1)[0];
-  saveMachines(machines);
+  setMachines(machines);
   res.json({ success: true, removed });
 });
 
 // Export machines as JSON download
 app.get('/api/machines/export', (req, res) => {
-  const machines = loadMachines();
+  const machines = getMachines();
   res.setHeader('Content-Disposition', 'attachment; filename="wakemaster-machines.json"');
   res.setHeader('Content-Type', 'application/json');
   res.json(machines);
@@ -146,7 +119,7 @@ app.post('/api/machines/import', (req, res) => {
     return res.status(400).json({ error: '导入数据必须是 JSON 数组' });
   }
 
-  const machines = loadMachines();
+  const machines = getMachines();
   const existingMacs = new Set(machines.map(m => m.mac.toUpperCase().replace(/[:-]/g, '')));
   let added = 0;
 
@@ -155,13 +128,13 @@ app.post('/api/machines/import', (req, res) => {
     const normalizedMac = item.mac.toUpperCase().replace(/[:-]/g, '');
     if (existingMacs.has(normalizedMac)) continue;
 
-    const id = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now() + '_' + added;
+    const id = generateId(item.name) + '_' + added;
     machines.push({ id, name: item.name, mac: item.mac, ip: item.ip, icon: item.icon || '🖥️' });
     existingMacs.add(normalizedMac);
     added++;
   }
 
-  saveMachines(machines);
+  setMachines(machines);
   res.json({ success: true, added, total: machines.length });
 });
 
@@ -170,5 +143,5 @@ app.post('/api/machines/import', (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n  🌐 WakeMaster 已启动`);
   console.log(`  📍 访问地址: http://localhost:${PORT}`);
-  console.log(`  📋 已加载 ${loadMachines().length} 台机器\n`);
+  console.log(`  📋 已加载 ${getMachines().length} 台机器\n`);
 });

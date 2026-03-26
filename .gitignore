@@ -31,3 +31,10 @@ clients/ios/DerivedData/
 
 # Cargo lock in libraries (keep in apps)
 # Keep Cargo.lock for reproducible builds
+
+# Vector Anchor
+.anchor/index.db
+.anchor/index.db-wal
+.anchor/index.db-shm
+.anchor/vectors.usearch
+.anchor/chunk_meta.json

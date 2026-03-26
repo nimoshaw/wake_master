@@ -12,74 +12,7 @@
  *   wake-master remove <id|name>        Remove a machine
  */
 
-const fs = require('fs');
-const path = require('path');
-const { exec } = require('child_process');
-const dgram = require('dgram');
-
-const MACHINES_FILE = path.join(__dirname, '..', 'machines.json');
-
-// === Helpers ===
-
-function loadMachines() {
-  try {
-    return JSON.parse(fs.readFileSync(MACHINES_FILE, 'utf8'));
-  } catch {
-    return [];
-  }
-}
-
-function saveMachines(machines) {
-  fs.writeFileSync(MACHINES_FILE, JSON.stringify(machines, null, 2), 'utf8');
-}
-
-function parseMac(mac) {
-  const parts = mac.split(/[:-]/);
-  if (parts.length !== 6) throw new Error(`Invalid MAC: ${mac}`);
-  return Buffer.from(parts.map(p => parseInt(p, 16)));
-}
-
-function buildMagicPacket(mac) {
-  const macBuf = parseMac(mac);
-  const packet = Buffer.alloc(6 + 16 * 6);
-  packet.fill(0xFF, 0, 6);
-  for (let i = 0; i < 16; i++) {
-    macBuf.copy(packet, 6 + i * 6);
-  }
-  return packet;
-}
-
-function sendWol(mac) {
-  return new Promise((resolve, reject) => {
-    const packet = buildMagicPacket(mac);
-    const socket = dgram.createSocket('udp4');
-    socket.once('error', reject);
-    socket.bind(() => {
-      socket.setBroadcast(true);
-      socket.send(packet, 0, packet.length, 9, '255.255.255.255', (err) => {
-        socket.close();
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-  });
-}
-
-function pingHost(ip) {
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32'
-      ? `ping -n 1 -w 2000 ${ip}`
-      : `ping -c 1 -W 2 ${ip}`;
-    exec(cmd, (error) => resolve(!error));
-  });
-}
-
-function findMachine(machines, query) {
-  return machines.find(m =>
-    m.id === query ||
-    m.name.toLowerCase() === query.toLowerCase()
-  );
-}
+const { loadMachines, saveMachines, sendWol, pingHost, findMachine, generateId } = require('../lib/core');
 
 // === Commands ===
 
@@ -143,7 +76,7 @@ async function cmdWake(query) {
 
 function cmdAdd(name, mac, ip) {
   const machines = loadMachines();
-  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+  const id = generateId(name);
   const newMachine = { id, name, mac, ip, icon: '🖥️' };
   machines.push(newMachine);
   saveMachines(machines);
